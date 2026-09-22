@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 500">
+  <title>Rifcazi Budget horizontal logo</title>
+  <path d="M 250.000 122.000 A 128 128 0 0 1 378.000 250.000" fill="none" stroke="#176B4D" stroke-width="56" stroke-linecap="round"/>
+  <path d="M 360.851 314.000 A 128 128 0 0 1 186.000 360.851" fill="none" stroke="#0F4D38" stroke-width="56" stroke-linecap="round"/>
+  <path d="M 139.149 314.000 A 128 128 0 0 1 186.000 139.149" fill="none" stroke="#E8A23A" stroke-width="56" stroke-linecap="round"/>
+  <text x="470" y="285" fill="#17211D" font-family="Inter, Manrope, 'Plus Jakarta Sans', 'Helvetica Neue', Arial, sans-serif" font-size="154" letter-spacing="-5"><tspan font-weight="700">Rifcazi</tspan><tspan dx="25" font-weight="400">Budget</tspan></text>
+</svg>

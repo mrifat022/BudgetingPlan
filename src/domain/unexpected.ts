@@ -1,0 +1,37 @@
+import type {Budget, FundSource, PeriodData} from '../models';
+import {fundSourceTypeForBudget} from './budgeting';
+
+// Keep the existing Debit document ID so old expenses retain their budget link.
+export const UNEXPECTED_CATEGORY_ID = 'dana-darurat';
+export const UNEXPECTED_NAME = 'Belanja Tak Terduga';
+export const unexpectedBudgetId = (source: {id: string; type: string}) =>
+  source.type === 'debit' ? 'dana-darurat' : `unexpected-credit-${source.id}`;
+export const isUnexpectedBudget = (id: string) =>
+  id === 'dana-darurat' || id.startsWith('unexpected-credit-');
+
+// Unused legacy allocations are available again; only actual spending is allocated.
+export function normalizeUnexpectedBudget(budget: Budget): Budget {
+  return isUnexpectedBudget(budget.id)
+    ? {...displayUnexpected(budget), amount: budget.realizedAmount}
+    : budget;
+}
+
+export function unexpectedAvailable(data: PeriodData, source: Pick<FundSource, 'id' | 'type'>, sources: FundSource[]): number {
+  const budgets = data.budgets.map(normalizeUnexpectedBudget);
+  const capacity = source.type === 'debit'
+    ? data.incomes.reduce((sum, item) => sum + item.amount, 0)
+    : data.creditLimits.find(item => item.fundSourceId === source.id)?.amount ?? 0;
+  const allocated = budgets.filter(item => source.type === 'debit'
+    ? fundSourceTypeForBudget(item, sources) === 'debit'
+    : item.fundSourceId === source.id).reduce((sum, item) => sum + item.amount, 0);
+  return capacity - allocated;
+}
+
+export function displayUnexpected<T extends {categoryId?: string; categoryName?: string; id: string; name?: string; budgetId?: string; budgetName?: string}>(item: T): T {
+  return {
+    ...item,
+    ...(item.categoryId === UNEXPECTED_CATEGORY_ID ? {categoryName: UNEXPECTED_NAME} : {}),
+    ...(isUnexpectedBudget(item.id) && item.name !== undefined ? {name: UNEXPECTED_NAME} : {}),
+    ...(item.budgetId && isUnexpectedBudget(item.budgetId) ? {budgetName: UNEXPECTED_NAME} : {}),
+  };
+}

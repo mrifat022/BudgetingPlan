@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>Rifcazi Budget Android round launcher icon</title>
+  <circle cx="512" cy="512" r="512" fill="#176B4D"/>
+  <path d="M 512.000 297.000 A 215 215 0 0 1 727.000 512.000" fill="none" stroke="#FFFFFF" stroke-width="90" stroke-linecap="round"/>
+  <path d="M 698.195 619.500 A 215 215 0 0 1 404.500 698.195" fill="none" stroke="#FFFFFF" stroke-width="90" stroke-linecap="round"/>
+  <path d="M 325.805 619.500 A 215 215 0 0 1 404.500 325.805" fill="none" stroke="#E8A23A" stroke-width="90" stroke-linecap="round"/>
+</svg>

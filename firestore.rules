@@ -1,0 +1,147 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(householdId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid));
+    }
+
+    function isOwner(householdId) {
+      return isMember(householdId)
+        && get(/databases/$(database)/documents/households/$(householdId)/members/$(request.auth.uid)).data.role == 'owner';
+    }
+
+    function validAudit(householdId) {
+      return request.resource.data.householdId == householdId
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    function validPeriodItem(householdId, periodId) {
+      return validAudit(householdId)
+        && request.resource.data.periodId == periodId;
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && request.auth.uid == userId;
+      allow write: if false;
+    }
+
+    match /households/{householdId} {
+      allow read: if isMember(householdId);
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isOwner(householdId);
+      allow delete: if false;
+
+      match /members/{userId} {
+        allow read: if isMember(householdId);
+        allow create, update, delete: if isOwner(householdId);
+      }
+
+      match /activities/{activityId} {
+        allow read: if isMember(householdId);
+        allow create: if isMember(householdId)
+          && request.resource.data.householdId == householdId
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.periodId is string
+          && request.resource.data.action is string
+          && request.resource.data.description is string;
+        allow update, delete: if false;
+      }
+
+      match /incomeCategories/{categoryId} {
+        allow read: if isMember(householdId);
+        allow create, update: if isMember(householdId)
+          && validAudit(householdId)
+          && request.resource.data.name is string;
+        allow delete: if false;
+      }
+
+      match /budgetCategories/{categoryId} {
+        allow read: if isMember(householdId);
+        allow create, update: if isMember(householdId)
+          && validAudit(householdId)
+          && request.resource.data.name is string;
+        allow delete: if false;
+      }
+
+      match /fundSources/{sourceId} {
+        allow read: if isMember(householdId);
+        allow create, update: if isMember(householdId)
+          && validAudit(householdId)
+          && request.resource.data.name is string
+          && request.resource.data.type in ['debit', 'credit_card', 'cash', 'other'];
+        allow delete: if false;
+      }
+
+      match /periods/{periodId} {
+        allow read: if isMember(householdId);
+        allow create, update: if isMember(householdId)
+          && validAudit(householdId);
+        allow delete: if false;
+
+        match /incomes/{incomeId} {
+          allow read: if isMember(householdId);
+          allow create, update: if isMember(householdId)
+            && validPeriodItem(householdId, periodId)
+            && request.resource.data.amount is number
+            && request.resource.data.amount > 0;
+          allow delete: if isMember(householdId);
+        }
+
+        match /budgets/{budgetId} {
+          allow read: if isMember(householdId);
+          allow create: if isMember(householdId)
+            && validPeriodItem(householdId, periodId)
+            && request.resource.data.amount is number
+            && request.resource.data.amount > 0
+            && (request.resource.data.realizedAmount == 0
+              || ((budgetId == 'dana-darurat' || budgetId.matches('unexpected-credit-.*'))
+                && request.resource.data.directUnexpected == true
+                && request.resource.data.realizationType == 'transaction'
+                && request.resource.data.fundSourceType in ['debit', 'credit_card']
+                && request.resource.data.initialExpenseId is string
+                && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/expenses/$(request.resource.data.initialExpenseId)).data.budgetId == budgetId
+                && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/expenses/$(request.resource.data.initialExpenseId)).data.amount == request.resource.data.amount
+                && request.resource.data.realizedAmount == request.resource.data.amount))
+            && request.resource.data.realizationType in ['transaction', 'cash_allocation'];
+          allow update: if isMember(householdId)
+            && validPeriodItem(householdId, periodId)
+            && request.resource.data.amount is number
+            && request.resource.data.realizedAmount is number
+            && request.resource.data.realizedAmount >= 0
+            && request.resource.data.realizedAmount <= request.resource.data.amount
+            && request.resource.data.realizationType in ['transaction', 'cash_allocation'];
+          allow delete: if isMember(householdId) && resource.data.realizedAmount == 0;
+        }
+
+        match /creditLimits/{sourceId} {
+          allow read: if isMember(householdId);
+          allow create, update: if isMember(householdId)
+            && validPeriodItem(householdId, periodId)
+            && request.resource.data.fundSourceId == sourceId
+            && request.resource.data.amount is number
+            && request.resource.data.amount > 0;
+          allow delete: if false;
+        }
+
+        match /expenses/{expenseId} {
+          allow read: if isMember(householdId);
+          allow create: if isMember(householdId)
+            && validPeriodItem(householdId, periodId)
+            && request.resource.data.amount is number
+            && request.resource.data.amount > 0
+            && request.resource.data.budgetId is string
+            && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/budgets/$(request.resource.data.budgetId)).data.realizedAmount
+              <= getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/budgets/$(request.resource.data.budgetId)).data.amount;
+          allow update: if false;
+          allow delete: if isMember(householdId);
+        }
+      }
+    }
+  }
+}
