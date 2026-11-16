@@ -37,13 +37,13 @@ export function StatusPill({status}: {status: BudgetStatus}) {
       styles.pill,
       status === 'unrealized' && styles.pillNeutral,
       status === 'partial' && styles.pillWarning,
-      (status === 'realized' || status === 'cash_allocated') && styles.pillSuccess,
+      (status === 'realized' || status === 'cash_allocated' || status === 'savings_allocated') && styles.pillSuccess,
     ]}>
       <Text style={[
         styles.pillText,
         status === 'unrealized' && styles.pillTextNeutral,
         status === 'partial' && styles.pillTextWarning,
-        (status === 'realized' || status === 'cash_allocated') && styles.pillTextSuccess,
+        (status === 'realized' || status === 'cash_allocated' || status === 'savings_allocated') && styles.pillTextSuccess,
       ]}>{statusLabel(status)}</Text>
     </View>
   );
@@ -58,11 +58,11 @@ export function SectionTitle({title, action, onAction}: {title: string; action?:
   );
 }
 
-export function FAB({onPress, label = 'Tambah'}: {onPress: () => void; label?: string}) {
+export function FAB({onPress, label}: {onPress: () => void; label?: string}) {
   return (
     <Pressable accessibilityRole="button" style={styles.fab} onPress={onPress}>
       <MaterialCommunityIcons name="plus" size={24} color={Colors.white} />
-      <Text style={styles.fabLabel}>{label}</Text>
+      {label ? <Text style={styles.fabLabel}>{label}</Text> : null}
     </Pressable>
   );
 }
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
   summaryAmount: {fontSize: 21, color: Colors.textPrimary, fontWeight: '800', marginTop: 8, letterSpacing: -0.4},
   onPrimary: {color: Colors.white},
   warning: {color: Colors.warning},
-  progressTrack: {height: 8, borderRadius: 5, backgroundColor: Colors.border, overflow: 'hidden'},
+  progressTrack: {height: 7, borderRadius: 5, backgroundColor: '#DCE6E1', overflow: 'hidden'},
   progressFill: {height: '100%', backgroundColor: Colors.primary, borderRadius: 5},
   pill: {alignSelf: 'flex-start', borderRadius: 20, paddingVertical: 5, paddingHorizontal: 9},
   pillNeutral: {backgroundColor: '#EEF1F0'},
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
   sectionHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, marginTop: 22},
   sectionTitle: {fontSize: 18, fontWeight: '800', color: Colors.textPrimary},
   sectionAction: {fontSize: 13, color: Colors.primary, fontWeight: '700'},
-  fab: {position: 'absolute', right: 20, bottom: 18, height: 52, borderRadius: 18, backgroundColor: Colors.primary, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 17, gap: 7, elevation: 6, shadowColor: '#000', shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: {width: 0, height: 4}},
+  fab: {position: 'absolute', right: 20, bottom: 18, minWidth: 56, height: 56, borderRadius: 18, backgroundColor: Colors.primary, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 17, gap: 7, elevation: 7, shadowColor: '#075A43', shadowOpacity: 0.24, shadowRadius: 9, shadowOffset: {width: 0, height: 4}},
   fabLabel: {color: Colors.white, fontWeight: '800'},
   empty: {alignItems: 'center', paddingHorizontal: 30, paddingVertical: 34},
   emptyTitle: {fontSize: 16, fontWeight: '800', color: Colors.textPrimary, marginTop: 10},

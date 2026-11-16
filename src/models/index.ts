@@ -1,10 +1,18 @@
-import type {Timestamp as FirestoreTimestamp} from '@react-native-firebase/firestore';
+import type { Timestamp as FirestoreTimestamp } from '@react-native-firebase/firestore';
 
 export type Timestamp = FirestoreTimestamp;
 export type UserRole = 'owner' | 'member';
 export type FundSourceType = 'debit' | 'credit_card' | 'cash' | 'other';
-export type RealizationType = 'transaction' | 'cash_allocation';
-export type BudgetStatus = 'unrealized' | 'partial' | 'realized' | 'cash_allocated';
+export type RealizationType =
+  | 'transaction'
+  | 'cash_allocation'
+  | 'savings_allocation';
+export type BudgetStatus =
+  | 'unrealized'
+  | 'partial'
+  | 'realized'
+  | 'cash_allocated'
+  | 'savings_allocated';
 
 export interface AuditFields {
   createdBy: string;
@@ -52,7 +60,7 @@ export interface Period extends AuditFields {
   year: number;
   month: number;
   label: string;
-  status: 'active' | 'archived';
+  status: 'active' | 'closed' | 'archived';
 }
 
 export interface IncomeCategory extends AuditFields {
@@ -85,6 +93,23 @@ export interface CreditLimit extends AuditFields {
   fundSourceId: string;
   fundSourceName: string;
   amount: number;
+  availableAmount?: number;
+  openingAvailableAmount?: number;
+  openingSource?: 'carry' | 'manual' | 'payment';
+}
+
+export interface CreditPayment extends AuditFields {
+  id: string;
+  householdId: string;
+  periodId: string;
+  fundSourceId: string;
+  fundSourceName: string;
+  amount: number;
+  date: string;
+  note: string;
+  previousLimitAvailableAmount?: number;
+  previousOpeningAvailableAmount?: number | null;
+  previousOpeningSource?: 'carry' | 'manual' | 'payment' | null;
 }
 
 export interface Income extends AuditFields {
@@ -113,6 +138,7 @@ export interface Budget extends AuditFields {
   realizationType: RealizationType;
   cashAllocated: boolean;
   note: string;
+  mergedInto?: string;
 }
 
 export interface Expense extends AuditFields {
@@ -129,6 +155,8 @@ export interface Expense extends AuditFields {
   amount: number;
   date: string;
   note: string;
+  creditSettled?: boolean;
+  creditSettlementId?: string;
 }
 
 export interface PeriodData {
@@ -136,14 +164,19 @@ export interface PeriodData {
   budgets: Budget[];
   expenses: Expense[];
   creditLimits: CreditLimit[];
+  creditPayments: CreditPayment[];
 }
 
 export interface FinancialSummary {
   totalIncome: number;
+  totalCreditPayments: number;
+  availableDebit: number;
   totalBudget: number;
+  budgetRealized: number;
   totalRealized: number;
   remainingBudget: number;
   debitBudget: number;
+  remainingDebitBudget: number;
   unallocatedDebit: number;
   totalCreditLimit: number;
   creditBudget: number;

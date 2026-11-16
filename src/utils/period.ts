@@ -14,16 +14,28 @@ const MONTHS = [
 ];
 
 export function periodIdFromDate(date = new Date()): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(
+    2,
+    '0',
+  )}`;
 }
 
 export function periodParts(periodId: string) {
   const [year, month] = periodId.split('-').map(Number);
-  return {year, month};
+  return { year, month };
+}
+
+export function previousPeriodId(periodId: string): string {
+  const { year, month } = periodParts(periodId);
+  const previousDate = new Date(year, month - 2, 1);
+
+  return `${previousDate.getFullYear()}-${String(
+    previousDate.getMonth() + 1,
+  ).padStart(2, '0')}`;
 }
 
 export function periodLabel(periodId: string): string {
-  const {year, month} = periodParts(periodId);
+  const { year, month } = periodParts(periodId);
   return `${MONTHS[month - 1] ?? ''} ${year}`.trim();
 }
 
@@ -39,7 +51,9 @@ export function isValidISODate(value: string): boolean {
   }
   const [year, month, day] = value.split('-').map(Number);
   const parsed = new Date(Date.UTC(year, month - 1, day));
-  return parsed.getUTCFullYear() === year
-    && parsed.getUTCMonth() === month - 1
-    && parsed.getUTCDate() === day;
+  return (
+    parsed.getUTCFullYear() === year &&
+    parsed.getUTCMonth() === month - 1 &&
+    parsed.getUTCDate() === day
+  );
 }

@@ -18,6 +18,9 @@ Data disimpan per `household` dan tersinkron realtime melalui Cloud Firestore, s
 - Validasi atomik agar dua perangkat tidak dapat melewati sisa budget.
 - Laporan per kategori, per sumber dana, detail item, dan belum terealisasi.
 - Salin budget bulan sebelumnya.
+- Pemilih tanggal native Android, pencarian/filter, dan edit transaksi.
+- Penutupan periode oleh pemilik household agar laporan lama menjadi hanya-baca.
+- Indikator sinkronisasi realtime dan checklist kesiapan bulanan.
 
 Rancangan lengkap, user flow, wireframe, model, dan tahapan implementasi ada di [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -46,6 +49,8 @@ firebase deploy --only firestore
 ```
 
 Setelah mengaktifkan riwayat aktivitas, deploy ulang `firestore.rules` sebelum mencoba menyimpan data dari APK. Log disimpan di `households/{householdId}/activities` bersama transaksi data dan ditampilkan hanya untuk periode aktif; saat bulan berganti, daftar aktivitas dimulai dari kosong tanpa menghapus riwayat bulan sebelumnya. Tanpa aturan terbaru, Firestore akan menolak penyimpanan.
+
+Jenis `Alokasi Tabungan` mengurangi saldo Debit yang belum dialokasikan, tetapi tidak dihitung sebagai budget pengeluaran, realisasi pengeluaran, ataupun arus kas keluar. Rules terbaru juga mengizinkan edit pengeluaran secara atomik dan mengunci transaksi pada periode yang sudah ditutup. Karena perubahan ini divalidasi oleh Firestore, deploy ulang rules setelah memperbarui aplikasi.
 
 ### 2. Buat dua akun privat
 
@@ -87,10 +92,13 @@ users/UID_B
 
 Saat login pertama, aplikasi membuat periode bulan berjalan serta master default secara otomatis.
 
-Pada awal setiap periode, buka halaman **Budgeting** dan isi limit tersedia untuk setiap
-sumber dana berjenis Kartu Kredit. Limit disimpan di
-`households/{householdId}/periods/{YYYY-MM}/creditLimits/{fundSourceId}`, sehingga sisa limit
-bulan sebelumnya tidak dianggap sebagai saldo dan tidak ikut terbawa ke bulan baru.
+Sisa limit kartu kredit dibawa otomatis sebagai limit awal periode berikutnya dan tetap tidak
+dianggap sebagai pemasukan. Pembayaran tagihan dicatat dari halaman **Pemasukan → Kartu
+Kredit → Bayar Tagihan**. Pelunasan mengurangi saldo Debit, memulihkan limit, dan menandai
+transaksi kartu sampai tanggal pembayaran sebagai lunas tanpa menghitungnya sebagai
+pengeluaran kedua kali. Dokumennya disimpan di
+`households/{householdId}/periods/{YYYY-MM}/creditPayments/{paymentId}`; karena itu deploy
+ulang `firestore.rules` sebelum menggunakan fitur ini.
 
 ### 4. Jalankan Android
 

@@ -1,4 +1,10 @@
-import React, {createContext, useContext, useEffect, useMemo, useState} from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import type {
   BudgetCategory,
   FundSource,
@@ -6,7 +12,7 @@ import type {
   Period,
   PeriodData,
 } from '../models';
-import {useAuth} from './AuthContext';
+import { useAuth } from './AuthContext';
 import {
   ensureCurrentPeriod,
   subscribeBudgetCategories,
@@ -15,36 +21,55 @@ import {
   subscribePeriodData,
   subscribePeriods,
 } from '../services/firebase';
+import { previousPeriodId } from '../utils/period';
 
 interface BudgetState {
   householdId: string;
   uid: string;
+  isOwner: boolean;
   periods: Period[];
   activePeriodId: string;
+  activePeriod: Period | null;
+  isPeriodReadOnly: boolean;
   setActivePeriodId: (id: string) => void;
   incomeCategories: IncomeCategory[];
   budgetCategories: BudgetCategory[];
   fundSources: FundSource[];
   data: PeriodData;
+  previousPeriodData: PeriodData;
   loading: boolean;
   error: string | null;
+  lastSyncedAt: Date | null;
 }
 
 const BudgetContext = createContext<BudgetState | null>(null);
-const EMPTY_DATA: PeriodData = {incomes: [], budgets: [], expenses: [], creditLimits: []};
+const EMPTY_DATA: PeriodData = {
+  incomes: [],
+  budgets: [],
+  expenses: [],
+  creditLimits: [],
+  creditPayments: [],
+};
 
-export function BudgetProvider({children}: {children: React.ReactNode}) {
-  const {user, profile} = useAuth();
+export function BudgetProvider({ children }: { children: React.ReactNode }) {
+  const { user, profile } = useAuth();
   const householdId = profile?.householdId ?? '';
   const uid = user?.uid ?? '';
   const [periods, setPeriods] = useState<Period[]>([]);
   const [activePeriodId, setActivePeriodId] = useState('');
-  const [incomeCategories, setIncomeCategories] = useState<IncomeCategory[]>([]);
-  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>([]);
+  const [incomeCategories, setIncomeCategories] = useState<IncomeCategory[]>(
+    [],
+  );
+  const [budgetCategories, setBudgetCategories] = useState<BudgetCategory[]>(
+    [],
+  );
   const [fundSources, setFundSources] = useState<FundSource[]>([]);
   const [data, setData] = useState<PeriodData>(EMPTY_DATA);
+  const [previousPeriodData, setPreviousPeriodData] =
+    useState<PeriodData>(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!householdId || !uid) {
@@ -53,7 +78,11 @@ export function BudgetProvider({children}: {children: React.ReactNode}) {
     setLoading(true);
     ensureCurrentPeriod(householdId, uid)
       .then(setActivePeriodId)
-      .catch(cause => setError(cause instanceof Error ? cause.message : 'Periode gagal dibuat.'))
+      .catch(cause =>
+        setError(
+          cause instanceof Error ? cause.message : 'Periode gagal dibuat.',
+        ),
+      )
       .finally(() => setLoading(false));
   }, [householdId, uid]);
 
@@ -76,24 +105,84 @@ export function BudgetProvider({children}: {children: React.ReactNode}) {
       setData(EMPTY_DATA);
       return;
     }
-    return subscribePeriodData(householdId, activePeriodId, setData, setError, uid);
-  }, [activePeriodId, householdId, uid]);
+    const selectedPeriod = periods.find(item => item.id === activePeriodId);
+    return subscribePeriodData(
+      householdId,
+      activePeriodId,
+      nextData => {
+        setData(nextData);
+        setLastSyncedAt(new Date());
+        setError(null);
+      },
+      setError,
+      selectedPeriod?.status === 'active' ? uid : undefined,
+    );
+  }, [activePeriodId, householdId, periods, uid]);
 
-  const value = useMemo<BudgetState>(() => ({
-    householdId,
-    uid,
-    periods,
+  const previousId = activePeriodId ? previousPeriodId(activePeriodId) : '';
+
+  useEffect(() => {
+    if (!householdId || !previousId) {
+      setPreviousPeriodData(EMPTY_DATA);
+      return;
+    }
+
+    return subscribePeriodData(
+      householdId,
+      previousId,
+      setPreviousPeriodData,
+      setError,
+    );
+  }, [householdId, previousId]);
+
+  const value = useMemo<BudgetState>(() => {
+    const activePeriod =
+      periods.find(item => item.id === activePeriodId) ?? null;
+    return {
+      householdId,
+      uid,
+      isOwner: profile?.role === 'owner',
+      periods,
+      activePeriodId,
+      activePeriod,
+      isPeriodReadOnly: Boolean(
+        activePeriod && activePeriod.status === 'closed',
+      ),
+      setActivePeriodId,
+      incomeCategories: incomeCategories
+        .filter(item => item.active)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      budgetCategories: budgetCategories
+        .filter(item => item.active)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      fundSources: fundSources
+        .filter(item => item.active)
+        .sort((a, b) => a.name.localeCompare(b.name)),
+      data,
+      previousPeriodData,
+      loading,
+      error,
+      lastSyncedAt,
+    };
+  }, [
     activePeriodId,
-    setActivePeriodId,
-    incomeCategories: incomeCategories.filter(item => item.active).sort((a, b) => a.name.localeCompare(b.name)),
-    budgetCategories: budgetCategories.filter(item => item.active).sort((a, b) => a.name.localeCompare(b.name)),
-    fundSources: fundSources.filter(item => item.active).sort((a, b) => a.name.localeCompare(b.name)),
+    budgetCategories,
     data,
-    loading,
+    previousPeriodData,
     error,
-  }), [activePeriodId, budgetCategories, data, error, fundSources, householdId, incomeCategories, loading, periods, uid]);
+    fundSources,
+    householdId,
+    incomeCategories,
+    lastSyncedAt,
+    loading,
+    periods,
+    uid,
+    profile,
+  ]);
 
-  return <BudgetContext.Provider value={value}>{children}</BudgetContext.Provider>;
+  return (
+    <BudgetContext.Provider value={value}>{children}</BudgetContext.Provider>
+  );
 }
 
 export function useBudget() {

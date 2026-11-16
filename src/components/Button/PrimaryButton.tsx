@@ -35,8 +35,10 @@ function PrimaryButton({title, onPress, disabled = false, variant = 'primary'}: 
 const styles = StyleSheet.create({
   button: {
     backgroundColor: Colors.primary,
+    minHeight: 52,
+    justifyContent: 'center',
     paddingVertical: 14,
-    borderRadius: 10,
+    borderRadius: 14,
     alignItems: 'center',
   },
   secondary: {

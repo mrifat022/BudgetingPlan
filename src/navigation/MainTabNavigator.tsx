@@ -14,9 +14,9 @@ const makeIcon = (name: string) => function TabIcon({color, size}: IconProps) {
   return <MaterialCommunityIcons name={name as never} color={color} size={size} />;
 };
 const DashboardIcon = makeIcon('home-variant-outline');
-const IncomeIcon = makeIcon('cash-plus');
-const BudgetIcon = makeIcon('clipboard-text-outline');
-const ExpenseIcon = makeIcon('receipt-text-outline');
+const IncomeIcon = makeIcon('cash');
+const BudgetIcon = makeIcon('view-grid-outline');
+const ExpenseIcon = makeIcon('currency-usd');
 const ReportIcon = makeIcon('chart-box-outline');
 
 export default function MainTabNavigator() {
@@ -25,8 +25,9 @@ export default function MainTabNavigator() {
       headerShown: false,
       tabBarActiveTintColor: Colors.primary,
       tabBarInactiveTintColor: '#84908B',
-      tabBarLabelStyle: {fontSize: 10, fontWeight: '700', marginBottom: 5},
-      tabBarStyle: {height: 67, paddingTop: 6, backgroundColor: Colors.surface, borderTopColor: Colors.border},
+      tabBarLabelStyle: {fontSize: 11, fontWeight: '700', marginBottom: 7},
+      tabBarIconStyle: {marginTop: 4},
+      tabBarStyle: {height: 76, paddingTop: 5, backgroundColor: Colors.surface, borderTopColor: Colors.border, borderTopWidth: 1},
     }}>
       <Tab.Screen name="Dashboard" component={DashboardScreen} options={{tabBarLabel: 'Home', tabBarIcon: DashboardIcon}} />
       <Tab.Screen name="Pemasukan" component={PemasukanScreen} options={{tabBarIcon: IncomeIcon}} />

@@ -1,16 +1,16 @@
 const Colors = {
-  primary: '#176B4D',
-  primaryDark: '#0F4D38',
-  primarySoft: '#E8F4EF',
-  accent: '#E8A23A',
+  primary: '#11845F',
+  primaryDark: '#075A43',
+  primarySoft: '#EAF7F1',
+  accent: '#F4B52E',
 
-  background: '#F4F6F5',
+  background: '#F7F9F8',
   surface: '#FFFFFF',
 
   textPrimary: '#17211D',
-  textSecondary: '#65716C',
+  textSecondary: '#6F7C76',
 
-  border: '#DCE4E0',
+  border: '#D7E2DD',
 
   danger: '#C84646',
   dangerSoft: '#FBECEC',

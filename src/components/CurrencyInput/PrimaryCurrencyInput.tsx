@@ -20,7 +20,8 @@ function PrimaryCurrencyInput({ value, onChangeValue }: Props) {
       separator=","
       precision={0}
       minValue={0}
-      placeholder="Masukkan nominal"
+      placeholder="0"
+      placeholderTextColor="#9AA59F"
       style={styles.input}
       keyboardType="numeric"
     />
@@ -31,11 +32,12 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 10,
+    borderRadius: 14,
     paddingHorizontal: 16,
-    height: 50,
+    height: 58,
     fontSize: Typography.body,
     backgroundColor: Colors.white,
+    color: Colors.textPrimary,
   },
 });
 

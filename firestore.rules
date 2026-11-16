@@ -26,6 +26,10 @@ service cloud.firestore {
         && request.resource.data.periodId == periodId;
     }
 
+    function periodOpen(householdId, periodId) {
+      return get(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)).data.status == 'active';
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && request.auth.uid == userId;
       allow write: if false;
@@ -80,26 +84,37 @@ service cloud.firestore {
 
       match /periods/{periodId} {
         allow read: if isMember(householdId);
-        allow create, update: if isMember(householdId)
+        allow create: if isMember(householdId)
           && validAudit(householdId);
+        allow update: if isMember(householdId)
+          && validAudit(householdId)
+          && (request.resource.data.status == resource.data.status
+            || isOwner(householdId)
+            || (resource.data.status == 'active' && request.resource.data.status == 'archived'));
         allow delete: if false;
 
         match /incomes/{incomeId} {
           allow read: if isMember(householdId);
           allow create, update: if isMember(householdId)
+            && periodOpen(householdId, periodId)
             && validPeriodItem(householdId, periodId)
             && request.resource.data.amount is number
             && request.resource.data.amount > 0;
-          allow delete: if isMember(householdId);
+          allow delete: if isMember(householdId) && periodOpen(householdId, periodId);
         }
 
         match /budgets/{budgetId} {
           allow read: if isMember(householdId);
           allow create: if isMember(householdId)
+            && periodOpen(householdId, periodId)
             && validPeriodItem(householdId, periodId)
             && request.resource.data.amount is number
             && request.resource.data.amount > 0
             && (request.resource.data.realizedAmount == 0
+              || (request.resource.data.realizationType == 'savings_allocation'
+                && request.resource.data.fundSourceType == 'debit'
+                && request.resource.data.cashAllocated == true
+                && request.resource.data.realizedAmount == request.resource.data.amount)
               || ((budgetId == 'dana-darurat' || budgetId.matches('unexpected-credit-.*'))
                 && request.resource.data.directUnexpected == true
                 && request.resource.data.realizationType == 'transaction'
@@ -108,20 +123,22 @@ service cloud.firestore {
                 && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/expenses/$(request.resource.data.initialExpenseId)).data.budgetId == budgetId
                 && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/expenses/$(request.resource.data.initialExpenseId)).data.amount == request.resource.data.amount
                 && request.resource.data.realizedAmount == request.resource.data.amount))
-            && request.resource.data.realizationType in ['transaction', 'cash_allocation'];
+            && request.resource.data.realizationType in ['transaction', 'cash_allocation', 'savings_allocation'];
           allow update: if isMember(householdId)
+            && periodOpen(householdId, periodId)
             && validPeriodItem(householdId, periodId)
             && request.resource.data.amount is number
             && request.resource.data.realizedAmount is number
             && request.resource.data.realizedAmount >= 0
             && request.resource.data.realizedAmount <= request.resource.data.amount
-            && request.resource.data.realizationType in ['transaction', 'cash_allocation'];
-          allow delete: if isMember(householdId) && resource.data.realizedAmount == 0;
+            && request.resource.data.realizationType in ['transaction', 'cash_allocation', 'savings_allocation'];
+          allow delete: if isMember(householdId) && periodOpen(householdId, periodId) && resource.data.realizedAmount == 0;
         }
 
         match /creditLimits/{sourceId} {
           allow read: if isMember(householdId);
           allow create, update: if isMember(householdId)
+            && periodOpen(householdId, periodId)
             && validPeriodItem(householdId, periodId)
             && request.resource.data.fundSourceId == sourceId
             && request.resource.data.amount is number
@@ -129,17 +146,50 @@ service cloud.firestore {
           allow delete: if false;
         }
 
+        match /creditPayments/{paymentId} {
+          allow read: if isMember(householdId);
+          allow create: if isMember(householdId)
+            && periodOpen(householdId, periodId)
+            && validPeriodItem(householdId, periodId)
+            && request.resource.data.fundSourceId is string
+            && request.resource.data.amount is number
+            && request.resource.data.amount > 0
+            && request.resource.data.date is string;
+          allow update: if false;
+          allow delete: if isOwner(householdId)
+            && periodOpen(householdId, periodId)
+            && resource.data.fundSourceId is string
+            && get(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/creditLimits/$(resource.data.fundSourceId)).data.availableAmount
+              == get(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/creditLimits/$(resource.data.fundSourceId)).data.amount
+            && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/creditLimits/$(resource.data.fundSourceId)).data.availableAmount
+              < get(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/creditLimits/$(resource.data.fundSourceId)).data.availableAmount;
+        }
+
         match /expenses/{expenseId} {
           allow read: if isMember(householdId);
           allow create: if isMember(householdId)
+            && periodOpen(householdId, periodId)
             && validPeriodItem(householdId, periodId)
             && request.resource.data.amount is number
             && request.resource.data.amount > 0
             && request.resource.data.budgetId is string
             && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/budgets/$(request.resource.data.budgetId)).data.realizedAmount
               <= getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/budgets/$(request.resource.data.budgetId)).data.amount;
-          allow update: if false;
-          allow delete: if isMember(householdId);
+          allow update: if isMember(householdId)
+            && periodOpen(householdId, periodId)
+            && validPeriodItem(householdId, periodId)
+            && request.resource.data.amount is number
+            && request.resource.data.amount > 0
+            && request.resource.data.categoryId == resource.data.categoryId
+            && ((request.resource.data.budgetId == resource.data.budgetId
+                && request.resource.data.fundSourceId == resource.data.fundSourceId)
+              || (resource.data.budgetId == 'dana-darurat'
+                && request.resource.data.budgetId.matches('unexpected-credit-.*')
+                && request.resource.data.categoryId == 'dana-darurat'
+                && request.resource.data.fundSourceType == 'credit_card'))
+            && getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/budgets/$(request.resource.data.budgetId)).data.realizedAmount
+              <= getAfter(/databases/$(database)/documents/households/$(householdId)/periods/$(periodId)/budgets/$(request.resource.data.budgetId)).data.amount;
+          allow delete: if isMember(householdId) && periodOpen(householdId, periodId);
         }
       }
     }

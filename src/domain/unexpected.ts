@@ -1,5 +1,5 @@
 import type {Budget, FundSource, PeriodData} from '../models';
-import {fundSourceTypeForBudget} from './budgeting';
+import {fundSourceTypeForBudget, uniqueCreditPayments} from './budgeting';
 
 // Keep the existing Debit document ID so old expenses retain their budget link.
 export const UNEXPECTED_CATEGORY_ID = 'dana-darurat';
@@ -20,11 +20,17 @@ export function unexpectedAvailable(data: PeriodData, source: Pick<FundSource, '
   const budgets = data.budgets.map(normalizeUnexpectedBudget);
   const capacity = source.type === 'debit'
     ? data.incomes.reduce((sum, item) => sum + item.amount, 0)
+      - uniqueCreditPayments(data.creditPayments).reduce((sum, item) => sum + item.amount, 0)
     : data.creditLimits.find(item => item.fundSourceId === source.id)?.amount ?? 0;
   const allocated = budgets.filter(item => source.type === 'debit'
     ? fundSourceTypeForBudget(item, sources) === 'debit'
-    : item.fundSourceId === source.id).reduce((sum, item) => sum + item.amount, 0);
-  return capacity - allocated;
+    : item.fundSourceId === source.id && !isUnexpectedBudget(item.id)).reduce((sum, item) => sum + item.amount, 0);
+  const unsettledUnexpected = source.type === 'credit_card'
+    ? data.expenses
+      .filter(item => item.fundSourceId === source.id && isUnexpectedBudget(item.budgetId) && !item.creditSettled)
+      .reduce((sum, item) => sum + item.amount, 0)
+    : 0;
+  return capacity - allocated - unsettledUnexpected;
 }
 
 export function displayUnexpected<T extends {categoryId?: string; categoryName?: string; id: string; name?: string; budgetId?: string; budgetName?: string}>(item: T): T {
