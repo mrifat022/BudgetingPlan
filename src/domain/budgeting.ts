@@ -7,6 +7,7 @@ import type {
   FundSourceType,
   GroupSummary,
   PeriodData,
+  Receivable,
 } from '../models';
 
 export function remainingForBudget(
@@ -171,7 +172,21 @@ export function summarizePeriod(
   data: PeriodData,
   fundSources: FundSource[],
   previousPeriodData?: PeriodData,
+  receivables: Receivable[] = [],
+  periodId?: string,
 ): FinancialSummary {
+  const activePeriodId =
+    periodId ??
+    data.incomes[0]?.periodId ??
+    data.budgets[0]?.periodId ??
+    data.creditPayments[0]?.periodId ??
+    data.creditLimits[0]?.periodId ??
+    '';
+  const totalReceivablesOut = activePeriodId
+    ? receivables
+        .filter(item => item.periodId === activePeriodId)
+        .reduce((sum, item) => sum + item.amount, 0)
+    : 0;
   const totalIncome = data.incomes.reduce((sum, item) => sum + item.amount, 0);
   const totalCreditPayments = uniqueCreditPayments(data.creditPayments).reduce(
     (sum, item) => sum + item.amount,
@@ -202,7 +217,9 @@ export function summarizePeriod(
   // Include them in this card so the unallocated Debit remainder reflects cash
   // already committed to paying the card bill.
   const debitBudget = plannedDebitBudget + totalCreditPayments;
-  const availableDebit = totalIncome - totalCreditPayments;
+  const availableDebit = totalIncome - totalCreditPayments - totalReceivablesOut;
+  const remainingDebitBudget = availableDebit - plannedDebitBudget;
+  const unallocatedDebit = availableDebit - plannedDebitBudget;
   const plannedCreditBudget = data.budgets
     .filter(
       item =>
@@ -251,6 +268,7 @@ export function summarizePeriod(
   return {
     totalIncome,
     totalCreditPayments,
+    totalReceivablesOut,
     availableDebit,
     totalBudget,
     budgetRealized,
@@ -260,8 +278,8 @@ export function summarizePeriod(
       0,
     ),
     debitBudget,
-    remainingDebitBudget: totalIncome - debitBudget,
-    unallocatedDebit: availableDebit - plannedDebitBudget,
+    remainingDebitBudget,
+    unallocatedDebit,
     totalCreditLimit,
     creditBudget,
     unallocatedCredit: totalCreditLimit - creditBudget,

@@ -26,13 +26,30 @@ function monthShort(periodId: string) {
 }
 
 export default function LaporanScreen() {
-  const {data, fundSources, householdId, activePeriodId} = useBudget();
+  const {
+    data,
+    previousPeriodData,
+    fundSources,
+    householdId,
+    activePeriodId,
+    receivables,
+  } = useBudget();
   const [history, setHistory] = useState<CashflowPoint[]>([]);
   const [historyError, setHistoryError] = useState('');
   const [expandedUnexpected, setExpandedUnexpected] = useState<Set<string>>(() => new Set());
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(() => new Set());
   const periodIds = useMemo(() => lastSixPeriods(activePeriodId), [activePeriodId]);
-  const summary = useMemo(() => summarizePeriod(data, fundSources), [data, fundSources]);
+  const summary = useMemo(
+    () =>
+      summarizePeriod(
+        data,
+        fundSources,
+        previousPeriodData,
+        receivables,
+        activePeriodId,
+      ),
+    [data, fundSources, previousPeriodData, receivables, activePeriodId],
+  );
   const sourceGroups = useMemo(() => groupBudgets(data.budgets, 'fundSource'), [data.budgets]);
   const categoryGroups = useMemo(() => {
     const groups = new Map<string, {name: string; items: Budget[]}>();

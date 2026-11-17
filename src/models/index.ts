@@ -14,6 +14,11 @@ export type BudgetStatus =
   | 'cash_allocated'
   | 'savings_allocated';
 
+export type DebtType = 'one_time' | 'installment';
+export type DebtOriginType = 'cash_loan' | 'purchase';
+export type DebtStatus = 'active' | 'paid';
+export type ReceivableStatus = 'unpaid' | 'partial' | 'paid';
+
 export interface AuditFields {
   createdBy: string;
   createdAt: Timestamp | null;
@@ -139,6 +144,9 @@ export interface Budget extends AuditFields {
   cashAllocated: boolean;
   note: string;
   mergedInto?: string;
+  debtId?: string;
+  debtInstallmentIndex?: number;
+  debtTotalInstallments?: number;
 }
 
 export interface Expense extends AuditFields {
@@ -159,6 +167,55 @@ export interface Expense extends AuditFields {
   creditSettlementId?: string;
 }
 
+export interface DebtInstallment {
+  index: number;
+  periodId: string;
+  amount: number;
+  budgetId: string;
+  status: 'unpaid' | 'paid';
+}
+
+export interface Debt extends AuditFields {
+  id: string;
+  householdId: string;
+  name: string;
+  debtType: DebtType;
+  originType: DebtOriginType;
+  fundSourceId: string;
+  fundSourceName: string;
+  fundSourceType: FundSourceType;
+  totalAmount: number;
+  tenor: number;
+  effectiveTenor: number;
+  startPeriodId: string;
+  installments: DebtInstallment[];
+  linkedIncomeId?: string;
+  note: string;
+  status: DebtStatus;
+}
+
+export interface ReceivablePayment {
+  id: string;
+  amount: number;
+  date: string;
+  periodId: string;
+  linkedIncomeId: string;
+}
+
+export interface Receivable extends AuditFields {
+  id: string;
+  householdId: string;
+  debtorName: string;
+  amount: number;
+  paidAmount: number;
+  date: string;
+  periodId: string;
+  dueDate?: string;
+  note: string;
+  status: ReceivableStatus;
+  payments: ReceivablePayment[];
+}
+
 export interface PeriodData {
   incomes: Income[];
   budgets: Budget[];
@@ -170,6 +227,7 @@ export interface PeriodData {
 export interface FinancialSummary {
   totalIncome: number;
   totalCreditPayments: number;
+  totalReceivablesOut: number;
   availableDebit: number;
   totalBudget: number;
   budgetRealized: number;

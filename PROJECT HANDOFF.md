@@ -38,9 +38,9 @@ docs/                         dokumentasi dan rancangan lama
 
 - \`App.tsx\` membungkus aplikasi dengan \`GestureHandlerRootView\`, \`SafeAreaProvider\`, dan \`AuthProvider\`.
 - \`RootNavigator\` menampilkan loading, lalu \`LoginScreen\` jika belum ada profil aktif. Setelah autentikasi, \`BudgetProvider\` membungkus stack berisi \`MainTab\` dan \`Settings\`.
-- Bottom tabs saat ini: \`DashboardScreen\` (label Home), \`PemasukanScreen\`, \`BudgetingScreen\`, \`PengeluaranScreen\`, dan \`LaporanScreen\`.
+- Bottom tabs saat ini: \`DashboardScreen\` (label Home), \`PemasukanScreen\`, \`BudgetingScreen\`, \`PengeluaranScreen\`, \`HutangPiutangScreen\` (label Hutang), dan \`LaporanScreen\`.
 - \`SettingsScreen\` dibuka dari header sebagai screen stack di luar tab.
-- Screen yang ada: Login (termasuk reset password), Dashboard (ringkasan/checklist/aktivitas/tutup periode), Pemasukan (income dan pembayaran/pengaturan limit kartu), Budgeting (anggaran/alokasi), Pengeluaran (transaksi), Laporan, dan Pengaturan (anggota serta master kategori/sumber dana).
+- Screen yang ada: Login (termasuk reset password), Dashboard (ringkasan/checklist/aktivitas/tutup periode), Pemasukan (income dan pembayaran/pengaturan limit kartu), Budgeting (anggaran/alokasi), Pengeluaran (transaksi), Hutang & Piutang (manajemen hutang sekali bayar/cicilan dan piutang), Laporan, dan Pengaturan (anggota serta master kategori/sumber dana).
 
 Alur ringkas: aplikasi memulihkan sesi Firebase Auth → memuat profil dan household → memastikan periode berjalan/master awal tersedia → berlangganan realtime pada master, daftar periode, data periode terpilih, dan data periode sebelumnya → layar memakai state konteks untuk menampilkan serta memutakhirkan data.
 
@@ -56,6 +56,8 @@ households/{householdId}
   incomeCategories/{categoryId}
   budgetCategories/{categoryId}
   fundSources/{fundSourceId}
+  debts/{debtId}
+  receivables/{receivableId}
   periods/{YYYY-MM}
     incomes/{incomeId}
     budgets/{budgetId}
@@ -77,11 +79,14 @@ Firestore adalah penyimpanan persisten utama; tidak ditemukan database lokal/SQL
 - \`creditLimits\` menyimpan plafon serta nilai tersedia/pembukaan limit; \`creditPayments\` menyimpan pembayaran tagihan dan metadata nilai limit sebelumnya untuk pemulihan/pembatalan yang divalidasi.
 - Audit umum memakai \`createdBy\`, \`createdAt\`, \`updatedBy\`, \`updatedAt\`. Nominal uang disimpan sebagai angka rupiah bulat (bukan pecahan sen).
 - Pembayaran kartu kredit juga ditampilkan sebagai realisasi virtual kategori Tagihan Rutin di Budgeting. Ini bukan dokumen budget atau expense kedua, untuk menghindari penghitungan ganda.
+- Koleksi `debts` dan `receivables` tersimpan di bawah `households/{householdId}`:
+  - Hutang: pinjaman dana (`cash_loan`) otomatis mencatat pemasukan kategori `Hutang`, sedangkan jadwal termin otomatis membuat budget kategori `Tagihan Rutin` pada masing-masing periode termin (`debtId`, `debtInstallmentIndex`, `debtTotalInstallments`). Realisasi pengeluaran pada budget terkait menyinkronkan status termin (`paid`/`unpaid`) dan status hutang. Percepatan pelunasan (`accelerateDebtPayoff`) menggabungkan sisa tagihan ke termin aktif dan menghapus budget bulan berikutnya. Salin budget dari bulan sebelumnya mengecualikan budget hutang agar tidak terduplikasi.
+  - Piutang: pinjaman keluar pada periode berjalan mengurangi `availableDebit` (`totalReceivablesOut`), dan pencatatan pembayaran piutang (`recordReceivablePayment`) otomatis membuat dokumen `Income` kategori `Piutang` pada periode penerimaan untuk memulihkan saldo Debit.
 
 ### State global
 
 - \`AuthContext\` (\`src/state/AuthContext.tsx\`): user Firebase, profil household, status loading/error, sign-in dan sign-out.
-- \`BudgetContext\` (\`src/state/BudgetContext.tsx\`): household/UID/peran, daftar dan periode terpilih, status read-only, master kategori/sumber dana, \`PeriodData\` periode berjalan dan sebelumnya, status loading/error, serta waktu sinkronisasi terakhir.
+- \`BudgetContext\` (\`src/state/BudgetContext.tsx\`): household/UID/peran, daftar dan periode terpilih, status read-only, master kategori/sumber dana, data realtime `debts` & `receivables`, \`PeriodData\` periode berjalan dan sebelumnya, status loading/error, serta waktu sinkronisasi terakhir.
 - Tidak ada Redux/Zustand/MobX terpasang; state global utama menggunakan React Context. Kalkulasi sebaiknya memakai fungsi domain di \`src/domain/\`, tidak menyisipkan perubahan skema atau logika finansial baru di komponen.
 
 ### Aturan bisnis penting saat audit
@@ -104,7 +109,10 @@ Inventaris berdasarkan alur implementasi dan kode yang tersedia (bukan klaim bah
 - Pengeluaran Debit/Kartu Kredit, termasuk Belanja Tak Terduga, pencarian/filter, dan alur edit/hapus sesuai validasi bisnis.
 - Pengaturan limit, pembayaran dan pembatalan pembayaran kartu kredit dengan validasi terkait transaksi.
 - Dashboard dan checklist bulanan, laporan ringkasan/tren/alokasi, pengaturan household/master.
+- Menu Hutang & Piutang (\`HutangPiutangScreen\`) sebagai bottom tab ke-6: manajemen hutang (sekali bayar/cicilan, jadwal termin, percepatan pelunasan, penyesuaian nominal termin) dan piutang (pencatatan pinjaman, penerimaan cicil/lunas yang otomatis masuk pemasukan).
+- Verifikasi fitur Hutang & Piutang pada 17 November 2026: \`npm run typecheck\`, \`npm run lint\`, dan \`npm test -- --runInBand\` lolos; 6 test suites dan 44 tes berhasil. Ini memverifikasi kode lokal, bukan deployment Firebase atau pengujian emulator.
 - Perhitungan finansial dipisah ke domain module dan memiliki tes unit/service.
+- Aturan keamanan Firestore di \`firestore.rules\` mencakup izin baca/tulis koleksi \`debts\` dan \`receivables\` berbasis member household. Pastikan aturan yang diperbarui di-publish ke Firebase Console (\`firebase deploy --only firestore:rules\` atau unggah manual) sebelum rilis.
 - APK Android release dibuat lewat Gradle; konfigurasi Firebase Android memakai \`android/app/google-services.json\`.
 
 ## 4. Known Issues / Technical Debt
@@ -168,4 +176,3 @@ Bagian ini mengarsipkan isi handoff lama agar catatan perubahan terdahulu tetap 
 - Di tab Kartu Kredit Pengeluaran, Sisa Kapasitas = Kapasitas Kredit dikurangi Total Pengeluaran Kredit; form Belanja Tak Terduga menampilkan limit aktual yang tersedia.
 - Deploy Rules harus menggunakan Firebase project yang benar; contoh perintah lama \`firebase deploy --only firestore:rules\`.
 - Pemeriksaan pada handoff terdahulu melaporkan \`npm run typecheck\`, \`npm test -- --runInBand\`, dan ESLint pada file yang diubah lolos dengan 32 tes. Ini adalah catatan historis, bukan hasil pemeriksaan audit dokumen ini.
-

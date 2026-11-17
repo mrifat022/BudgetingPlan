@@ -34,6 +34,7 @@ export default function DashboardScreen() {
     householdId,
     activePeriodId,
     activePeriod,
+    receivables,
   } = useBudget();
   const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
@@ -48,8 +49,15 @@ export default function DashboardScreen() {
     return subscribeMembers(householdId, setMembers, setActivityError);
   }, [householdId]);
   const summary = useMemo(
-    () => summarizePeriod(data, fundSources),
-    [data, fundSources],
+    () =>
+      summarizePeriod(
+        data,
+        fundSources,
+        previousPeriodData,
+        receivables,
+        activePeriodId,
+      ),
+    [data, fundSources, previousPeriodData, receivables, activePeriodId],
   );
   const sources = useMemo(
     () => groupBudgets(data.budgets, 'fundSource'),

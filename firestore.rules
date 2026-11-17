@@ -82,6 +82,20 @@ service cloud.firestore {
         allow delete: if false;
       }
 
+      match /debts/{debtId} {
+        allow read: if isMember(householdId);
+        allow create, update: if isMember(householdId)
+          && validAudit(householdId);
+        allow delete: if isMember(householdId);
+      }
+
+      match /receivables/{receivableId} {
+        allow read: if isMember(householdId);
+        allow create, update: if isMember(householdId)
+          && validAudit(householdId);
+        allow delete: if isMember(householdId);
+      }
+
       match /periods/{periodId} {
         allow read: if isMember(householdId);
         allow create: if isMember(householdId)

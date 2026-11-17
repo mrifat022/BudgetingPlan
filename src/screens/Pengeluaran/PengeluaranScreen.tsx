@@ -18,7 +18,18 @@ function isUnexpectedCategory(categoryId: string, categoryName: string) {
 }
 
 export default function PengeluaranScreen() {
-  const {householdId, uid, isOwner, activePeriod, activePeriodId, data, previousPeriodData, fundSources, isPeriodReadOnly} = useBudget();
+  const {
+    householdId,
+    uid,
+    isOwner,
+    activePeriod,
+    activePeriodId,
+    data,
+    previousPeriodData,
+    fundSources,
+    isPeriodReadOnly,
+    receivables,
+  } = useBudget();
   const directOptions = useMemo(() => {
     const debitBudget = data.budgets.find(item => item.id === 'dana-darurat');
     const debit = fundSources.find(item => item.type === 'debit' && item.id === debitBudget?.fundSourceId)
@@ -28,9 +39,9 @@ export default function PengeluaranScreen() {
       id: unexpectedBudgetId(source), source,
       available: source.type === 'credit_card'
         ? availableCreditLimit(data, source.id, previousPeriodData)
-        : unexpectedAvailable(data, source, fundSources),
+        : unexpectedAvailable(data, source, fundSources, receivables, activePeriodId),
     }));
-  }, [data, fundSources, previousPeriodData]);
+  }, [data, fundSources, previousPeriodData, receivables, activePeriodId]);
   const availableBudgets = useMemo(() => data.budgets.filter(item => !isUnexpectedBudget(item.id) && !isSavingsBudget(item) && item.realizationType === 'transaction' && remainingForBudget(item) > 0), [data.budgets]);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -54,7 +65,17 @@ export default function PengeluaranScreen() {
     ...availableBudgets.map(item => ({label: `${item.name} • ${item.fundSourceName} — sisa ${formatRupiah(remainingForBudget(item))}`, value: item.id})),
     ...directOptions.map(item => ({label: `${UNEXPECTED_NAME} • ${item.source.name} — ${item.source.type === 'credit_card' ? 'limit tersedia' : 'saldo'} ${formatRupiah(item.available)} (boleh minus)`, value: item.id})),
   ];
-  const periodSummary = useMemo(() => summarizePeriod(data, fundSources, previousPeriodData), [data, fundSources, previousPeriodData]);
+  const periodSummary = useMemo(
+    () =>
+      summarizePeriod(
+        data,
+        fundSources,
+        previousPeriodData,
+        receivables,
+        activePeriodId,
+      ),
+    [data, fundSources, previousPeriodData, receivables, activePeriodId],
+  );
   const sourceSummary = useMemo(() => {
     const totals = {all: 0, debit: 0, credit_card: 0};
     data.budgets.filter(item => !isSavingsBudget(item)).forEach(item => {

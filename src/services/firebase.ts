@@ -32,6 +32,10 @@ import type {
   BudgetCategory,
   CreditLimit,
   CreditPayment,
+  Debt,
+  DebtInstallment,
+  DebtOriginType,
+  DebtType,
   Expense,
   FundSource,
   FundSourceType,
@@ -41,6 +45,9 @@ import type {
   Period,
   PeriodData,
   RealizationType,
+  Receivable,
+  ReceivablePayment,
+  ReceivableStatus,
   UserProfile,
 } from '../models';
 import {
@@ -49,6 +56,7 @@ import {
   periodLabel,
   periodParts,
   previousPeriodId,
+  todayISO,
 } from '../utils/period';
 import { formatRupiah } from '../utils/currency';
 import {
@@ -60,6 +68,11 @@ import {
   uniqueCreditPayments,
   validateExpense,
 } from '../domain/budgeting';
+import {
+  formatDebtBudgetName,
+  calculateAcceleratedPayoff,
+  canEditOrDeleteDebt,
+} from '../domain/debt';
 
 const LOGIN_DOMAIN = 'budgeting-plan.local';
 import {
@@ -1446,6 +1459,12 @@ export async function saveBudget(
         }
         existing = { id: current.id, ...current.data() } as Budget;
       }
+      let debtSnapshot: any = null;
+      if (existing?.debtId && existing?.debtInstallmentIndex) {
+        debtSnapshot = await transaction.get(
+          doc(householdCollection(householdId, 'debts'), existing.debtId),
+        );
+      }
       if (input.fundSourceType === 'credit_card') {
         const [limitSnapshot, budgetsSnapshot] = await Promise.all([
           transaction.get(
@@ -1499,6 +1518,23 @@ export async function saveBudget(
           updatedBy: uid,
           updatedAt: serverTimestamp(),
         });
+        if (debtSnapshot && debtSnapshot.exists()) {
+          const debtData = debtSnapshot.data() as Debt;
+          const instIdx = (existing.debtInstallmentIndex ?? 1) - 1;
+          if (debtData.installments && debtData.installments[instIdx]) {
+            debtData.installments[instIdx].amount = input.amount;
+            const nextTotal = debtData.installments.reduce(
+              (sum, item) => sum + item.amount,
+              0,
+            );
+            transaction.update(debtSnapshot.ref, {
+              installments: debtData.installments,
+              totalAmount: nextTotal,
+              updatedBy: uid,
+              updatedAt: serverTimestamp(),
+            });
+          }
+        }
         logTransaction(
           transaction,
           householdId,
@@ -1934,6 +1970,12 @@ export async function addExpense(
     if (budget.realizationType !== 'transaction') {
       throw new Error('Alokasi cash direalisasikan dari halaman Budgeting.');
     }
+    let debtSnapshot: any = null;
+    if (budget.debtId && budget.debtInstallmentIndex) {
+      debtSnapshot = await transaction.get(
+        doc(householdCollection(householdId, 'debts'), budget.debtId),
+      );
+    }
     const remaining = budget.amount - budget.realizedAmount;
     const validation = validateExpense(input.amount, remaining);
     if (validation) {
@@ -1952,11 +1994,29 @@ export async function addExpense(
         : {}),
       ...auditForCreate(householdId, periodId, uid),
     });
+    const nextRealized = budget.realizedAmount + input.amount;
     transaction.update(targetBudget, {
-      realizedAmount: budget.realizedAmount + input.amount,
+      realizedAmount: nextRealized,
       updatedBy: uid,
       updatedAt: serverTimestamp(),
     });
+    if (debtSnapshot && debtSnapshot.exists()) {
+      const debtData = debtSnapshot.data() as Debt;
+      const instIndex = (budget.debtInstallmentIndex ?? 1) - 1;
+      if (debtData.installments && debtData.installments[instIndex]) {
+        const isPaid = nextRealized >= budget.amount;
+        debtData.installments[instIndex].status = isPaid ? 'paid' : 'unpaid';
+        const allPaid = debtData.installments
+          .slice(0, debtData.effectiveTenor)
+          .every(item => item.status === 'paid');
+        transaction.update(debtSnapshot.ref, {
+          installments: debtData.installments,
+          status: allPaid ? 'paid' : 'active',
+          updatedBy: uid,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
     logTransaction(
       transaction,
       householdId,
@@ -1990,6 +2050,12 @@ export async function deleteExpense(
     }
     const budget = budgetSnapshot.data() as Budget;
     const storedExpense = expenseSnapshot.data() as Expense;
+    let debtSnapshot: any = null;
+    if (budget.debtId && budget.debtInstallmentIndex) {
+      debtSnapshot = await transaction.get(
+        doc(householdCollection(householdId, 'debts'), budget.debtId),
+      );
+    }
     const sourceType = storedExpense.fundSourceType ?? budget.fundSourceType;
     if (sourceType === 'credit_card') {
       const paymentDocs = await getDocsFromServer(
@@ -2011,6 +2077,23 @@ export async function deleteExpense(
       updatedBy: uid,
       updatedAt: serverTimestamp(),
     });
+    if (debtSnapshot && debtSnapshot.exists()) {
+      const debtData = debtSnapshot.data() as Debt;
+      const instIndex = (budget.debtInstallmentIndex ?? 1) - 1;
+      if (debtData.installments && debtData.installments[instIndex]) {
+        const isPaid = realized >= budget.amount;
+        debtData.installments[instIndex].status = isPaid ? 'paid' : 'unpaid';
+        const allPaid = debtData.installments
+          .slice(0, debtData.effectiveTenor)
+          .every(item => item.status === 'paid');
+        transaction.update(debtSnapshot.ref, {
+          installments: debtData.installments,
+          status: allPaid ? 'paid' : 'active',
+          updatedBy: uid,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
     logTransaction(
       transaction,
       householdId,
@@ -2063,6 +2146,12 @@ export async function updateExpense(
       id: budgetSnapshot.id,
       ...budgetSnapshot.data(),
     } as Budget;
+    let debtSnapshot: any = null;
+    if (budget.debtId && budget.debtInstallmentIndex) {
+      debtSnapshot = await transaction.get(
+        doc(householdCollection(householdId, 'debts'), budget.debtId),
+      );
+    }
     let sourceType = storedExpense.fundSourceType ?? budget.fundSourceType;
     if (!sourceType && storedExpense.fundSourceId) {
       const sourceSnapshot = await transaction.get(
@@ -2117,6 +2206,23 @@ export async function updateExpense(
       updatedBy: uid,
       updatedAt: serverTimestamp(),
     });
+    if (debtSnapshot && debtSnapshot.exists()) {
+      const debtData = debtSnapshot.data() as Debt;
+      const instIndex = (budget.debtInstallmentIndex ?? 1) - 1;
+      if (debtData.installments && debtData.installments[instIndex]) {
+        const isPaid = nextRealized >= budget.amount;
+        debtData.installments[instIndex].status = isPaid ? 'paid' : 'unpaid';
+        const allPaid = debtData.installments
+          .slice(0, debtData.effectiveTenor)
+          .every(item => item.status === 'paid');
+        transaction.update(debtSnapshot.ref, {
+          installments: debtData.installments,
+          status: allPaid ? 'paid' : 'active',
+          updatedBy: uid,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    }
     logTransaction(
       transaction,
       householdId,
@@ -2335,7 +2441,10 @@ export async function copyBudgetsFromPreviousPeriod(
   }
   const batch = writeBatch(firestore());
   const copyableBudgets = source.docs.filter(
-    item => !isUnexpectedBudget(item.id) && item.data().amount > 0,
+    item =>
+      !isUnexpectedBudget(item.id) &&
+      item.data().amount > 0 &&
+      !item.data().debtId,
   );
   copyableBudgets.forEach(item => {
     const old = item.data() as Budget;
@@ -2371,4 +2480,779 @@ export async function copyBudgetsFromPreviousPeriod(
   batch.set(entry.ref, entry.value);
   await batch.commit();
   return copyableBudgets.length;
+}
+
+export async function ensureSystemIncomeCategory(
+  householdId: string,
+  uid: string,
+  name: 'Hutang' | 'Piutang',
+): Promise<IncomeCategory> {
+  const snapshot = await getDocs(
+    householdCollection(householdId, 'incomeCategories'),
+  );
+  const found = snapshot.docs.find(
+    item => item.data().name?.trim().toLowerCase() === name.toLowerCase(),
+  );
+  if (found) {
+    return { id: found.id, ...found.data() } as IncomeCategory;
+  }
+  const categoryId = slug(name);
+  const ref = doc(householdCollection(householdId, 'incomeCategories'), categoryId);
+  const data = {
+    householdId,
+    name,
+    active: true,
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+    updatedBy: uid,
+    updatedAt: serverTimestamp(),
+  };
+  const batch = writeBatch(firestore());
+  batch.set(ref, data);
+  await batch.commit();
+  return { id: categoryId, ...data } as unknown as IncomeCategory;
+}
+
+export async function ensureRoutineBillCategory(
+  householdId: string,
+  uid: string,
+): Promise<BudgetCategory> {
+  const snapshot = await getDocs(
+    householdCollection(householdId, 'budgetCategories'),
+  );
+  const found = snapshot.docs.find(
+    item => item.data().name?.trim().toLowerCase() === 'tagihan rutin',
+  );
+  if (found) {
+    return { id: found.id, ...found.data() } as BudgetCategory;
+  }
+  const categoryId = 'tagihan-rutin';
+  const ref = doc(householdCollection(householdId, 'budgetCategories'), categoryId);
+  const data = {
+    householdId,
+    name: 'Tagihan Rutin',
+    active: true,
+    createdBy: uid,
+    createdAt: serverTimestamp(),
+    updatedBy: uid,
+    updatedAt: serverTimestamp(),
+  };
+  const batch = writeBatch(firestore());
+  batch.set(ref, data);
+  await batch.commit();
+  return { id: categoryId, ...data } as unknown as BudgetCategory;
+}
+
+export async function ensurePeriodDoc(
+  householdId: string,
+  periodId: string,
+  uid: string,
+  batch?: ReturnType<typeof writeBatch>,
+) {
+  const periodRef = doc(firestore(), 'households', householdId, 'periods', periodId);
+  const snapshot = await getDoc(periodRef);
+  if (!snapshot.exists()) {
+    const { year, month } = periodParts(periodId);
+    const data = {
+      householdId,
+      year,
+      month,
+      label: periodLabel(periodId),
+      status: 'active' as const,
+      createdBy: uid,
+      createdAt: serverTimestamp(),
+      updatedBy: uid,
+      updatedAt: serverTimestamp(),
+    };
+    if (batch) {
+      batch.set(periodRef, data);
+    } else {
+      const b = writeBatch(firestore());
+      b.set(periodRef, data);
+      await b.commit();
+    }
+  }
+}
+
+export function subscribeDebts(
+  householdId: string,
+  next: (items: Debt[]) => void,
+  error: (message: string) => void,
+): Unsubscribe {
+  return onSnapshot(
+    householdCollection(householdId, 'debts'),
+    snapshot => next(mapDocs<Debt>(snapshot)),
+    cause => error(cause.message),
+  );
+}
+
+export function subscribeReceivables(
+  householdId: string,
+  next: (items: Receivable[]) => void,
+  error: (message: string) => void,
+): Unsubscribe {
+  return onSnapshot(
+    householdCollection(householdId, 'receivables'),
+    snapshot => next(mapDocs<Receivable>(snapshot)),
+    cause => error(cause.message),
+  );
+}
+
+export async function createDebt(
+  householdId: string,
+  uid: string,
+  payload: {
+    name: string;
+    debtType: DebtType;
+    originType: DebtOriginType;
+    fundSourceId: string;
+    fundSourceName: string;
+    fundSourceType: FundSourceType;
+    totalAmount: number;
+    tenor: number;
+    startPeriodId: string;
+    installments: DebtInstallment[];
+    note: string;
+  },
+): Promise<string> {
+  const routineCat = await ensureRoutineBillCategory(householdId, uid);
+  let hutangCat: IncomeCategory | null = null;
+  if (payload.originType === 'cash_loan') {
+    hutangCat = await ensureSystemIncomeCategory(householdId, uid, 'Hutang');
+  }
+  const debtRef = doc(householdCollection(householdId, 'debts'));
+  const debtId = debtRef.id;
+
+  const allPeriodIds = Array.from(
+    new Set([
+      payload.startPeriodId,
+      ...payload.installments.map(item => item.periodId),
+    ]),
+  );
+  for (const pId of allPeriodIds) {
+    await ensurePeriodDoc(householdId, pId, uid);
+  }
+
+  const batch = writeBatch(firestore());
+  let linkedIncomeId: string | undefined;
+
+  if (payload.originType === 'cash_loan' && hutangCat) {
+    const incomeRef = doc(
+      periodCollection(householdId, payload.startPeriodId, 'incomes'),
+    );
+    linkedIncomeId = incomeRef.id;
+    batch.set(incomeRef, {
+      categoryId: hutangCat.id,
+      categoryName: hutangCat.name,
+      amount: payload.totalAmount,
+      date: todayISO(),
+      note: `Pencairan ${payload.name}`,
+      ...auditForCreate(householdId, payload.startPeriodId, uid),
+    });
+  }
+
+  const finalInstallments: DebtInstallment[] = payload.installments.map(inst => {
+    const budgetId = inst.budgetId || `debt-${debtId}-${inst.index}`;
+    const budgetName = formatDebtBudgetName(
+      payload.name,
+      payload.debtType,
+      inst.index,
+      payload.tenor,
+    );
+    const budgetDocRef = doc(
+      periodCollection(householdId, inst.periodId, 'budgets'),
+      budgetId,
+    );
+    batch.set(budgetDocRef, {
+      name: budgetName,
+      categoryId: routineCat.id,
+      categoryName: routineCat.name,
+      fundSourceId: payload.fundSourceId,
+      fundSourceName: payload.fundSourceName,
+      fundSourceType: payload.fundSourceType,
+      amount: inst.amount,
+      realizedAmount: 0,
+      realizationType: 'transaction' as RealizationType,
+      cashAllocated: false,
+      note: payload.note || '',
+      debtId,
+      debtInstallmentIndex: inst.index,
+      debtTotalInstallments: payload.tenor,
+      ...auditForCreate(householdId, inst.periodId, uid),
+    });
+
+    return {
+      index: inst.index,
+      periodId: inst.periodId,
+      amount: inst.amount,
+      budgetId,
+      status: 'unpaid' as const,
+    };
+  });
+
+  batch.set(debtRef, {
+    name: payload.name.trim(),
+    debtType: payload.debtType,
+    originType: payload.originType,
+    fundSourceId: payload.fundSourceId,
+    fundSourceName: payload.fundSourceName,
+    fundSourceType: payload.fundSourceType,
+    totalAmount: payload.totalAmount,
+    tenor: payload.tenor,
+    effectiveTenor: payload.tenor,
+    startPeriodId: payload.startPeriodId,
+    installments: finalInstallments,
+    ...(linkedIncomeId ? { linkedIncomeId } : {}),
+    note: payload.note?.trim() || '',
+    status: 'active' as const,
+    ...auditForCreate(householdId, payload.startPeriodId, uid),
+  });
+
+  const entry = activity(
+    householdId,
+    payload.startPeriodId,
+    uid,
+    'hutang_ditambah',
+    `Menambahkan hutang ${payload.name} sebesar ${formatRupiah(payload.totalAmount)}`,
+  );
+  batch.set(entry.ref, entry.value);
+
+  await batch.commit();
+  return debtId;
+}
+
+export async function updateDebt(
+  householdId: string,
+  uid: string,
+  debtId: string,
+  payload: {
+    name: string;
+    debtType: DebtType;
+    originType: DebtOriginType;
+    fundSourceId: string;
+    fundSourceName: string;
+    fundSourceType: FundSourceType;
+    totalAmount: number;
+    tenor: number;
+    startPeriodId: string;
+    installments: DebtInstallment[];
+    note: string;
+  },
+): Promise<void> {
+  const debtRef = doc(householdCollection(householdId, 'debts'), debtId);
+  const debtSnap = await getDoc(debtRef);
+  if (!debtSnap.exists()) {
+    throw new Error('Data hutang tidak ditemukan.');
+  }
+  const existingDebt = { id: debtSnap.id, ...debtSnap.data() } as Debt;
+
+  const budgetSnaps = await Promise.all(
+    existingDebt.installments.map(inst =>
+      getDoc(
+        doc(
+          periodCollection(householdId, inst.periodId, 'budgets'),
+          inst.budgetId,
+        ),
+      ),
+    ),
+  );
+  const relatedBudgets = budgetSnaps
+    .filter(s => s.exists())
+    .map(s => ({ id: s.id, ...s.data() } as Budget));
+
+  if (!canEditOrDeleteDebt(existingDebt, relatedBudgets)) {
+    throw new Error(
+      'Hutang tidak dapat diubah karena sudah ada cicilan yang terealisasi. Hapus transaksi terkait di Pengeluaran terlebih dahulu.',
+    );
+  }
+
+  const routineCat = await ensureRoutineBillCategory(householdId, uid);
+
+  const allPeriodIds = Array.from(
+    new Set([
+      payload.startPeriodId,
+      ...payload.installments.map(item => item.periodId),
+    ]),
+  );
+  for (const pId of allPeriodIds) {
+    await ensurePeriodDoc(householdId, pId, uid);
+  }
+
+  const batch = writeBatch(firestore());
+
+  budgetSnaps.forEach(s => {
+    if (s.exists()) {
+      batch.delete(s.ref);
+    }
+  });
+
+  let linkedIncomeId: string | undefined = existingDebt.linkedIncomeId;
+  if (
+    existingDebt.linkedIncomeId &&
+    (payload.originType === 'purchase' ||
+      existingDebt.startPeriodId !== payload.startPeriodId)
+  ) {
+    const oldIncomeRef = doc(
+      periodCollection(householdId, existingDebt.startPeriodId, 'incomes'),
+      existingDebt.linkedIncomeId,
+    );
+    batch.delete(oldIncomeRef);
+    linkedIncomeId = undefined;
+  }
+
+  if (payload.originType === 'cash_loan') {
+    const hutangCat = await ensureSystemIncomeCategory(householdId, uid, 'Hutang');
+    if (linkedIncomeId && existingDebt.startPeriodId === payload.startPeriodId) {
+      const incomeRef = doc(
+        periodCollection(householdId, payload.startPeriodId, 'incomes'),
+        linkedIncomeId,
+      );
+      batch.update(incomeRef, {
+        amount: payload.totalAmount,
+        note: `Pencairan ${payload.name}`,
+        updatedBy: uid,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      const newIncomeRef = doc(
+        periodCollection(householdId, payload.startPeriodId, 'incomes'),
+      );
+      linkedIncomeId = newIncomeRef.id;
+      batch.set(newIncomeRef, {
+        categoryId: hutangCat.id,
+        categoryName: hutangCat.name,
+        amount: payload.totalAmount,
+        date: todayISO(),
+        note: `Pencairan ${payload.name}`,
+        ...auditForCreate(householdId, payload.startPeriodId, uid),
+      });
+    }
+  }
+
+  const finalInstallments: DebtInstallment[] = payload.installments.map(inst => {
+    const budgetId = inst.budgetId || `debt-${debtId}-${inst.index}`;
+    const budgetName = formatDebtBudgetName(
+      payload.name,
+      payload.debtType,
+      inst.index,
+      payload.tenor,
+    );
+    const budgetDocRef = doc(
+      periodCollection(householdId, inst.periodId, 'budgets'),
+      budgetId,
+    );
+    batch.set(budgetDocRef, {
+      name: budgetName,
+      categoryId: routineCat.id,
+      categoryName: routineCat.name,
+      fundSourceId: payload.fundSourceId,
+      fundSourceName: payload.fundSourceName,
+      fundSourceType: payload.fundSourceType,
+      amount: inst.amount,
+      realizedAmount: 0,
+      realizationType: 'transaction' as RealizationType,
+      cashAllocated: false,
+      note: payload.note || '',
+      debtId,
+      debtInstallmentIndex: inst.index,
+      debtTotalInstallments: payload.tenor,
+      ...auditForCreate(householdId, inst.periodId, uid),
+    });
+
+    return {
+      index: inst.index,
+      periodId: inst.periodId,
+      amount: inst.amount,
+      budgetId,
+      status: 'unpaid' as const,
+    };
+  });
+
+  batch.update(debtRef, {
+    name: payload.name.trim(),
+    debtType: payload.debtType,
+    originType: payload.originType,
+    fundSourceId: payload.fundSourceId,
+    fundSourceName: payload.fundSourceName,
+    fundSourceType: payload.fundSourceType,
+    totalAmount: payload.totalAmount,
+    tenor: payload.tenor,
+    effectiveTenor: payload.tenor,
+    startPeriodId: payload.startPeriodId,
+    installments: finalInstallments,
+    linkedIncomeId: linkedIncomeId ?? deleteField(),
+    note: payload.note?.trim() || '',
+    status: 'active' as const,
+    updatedBy: uid,
+    updatedAt: serverTimestamp(),
+  });
+
+  const entry = activity(
+    householdId,
+    payload.startPeriodId,
+    uid,
+    'hutang_diubah',
+    `Mengubah data hutang ${payload.name}`,
+  );
+  batch.set(entry.ref, entry.value);
+
+  await batch.commit();
+}
+
+export async function deleteDebt(
+  householdId: string,
+  uid: string,
+  debt: Debt,
+): Promise<void> {
+  const budgetSnaps = await Promise.all(
+    debt.installments.map(inst =>
+      getDoc(
+        doc(
+          periodCollection(householdId, inst.periodId, 'budgets'),
+          inst.budgetId,
+        ),
+      ),
+    ),
+  );
+  const relatedBudgets = budgetSnaps
+    .filter(s => s.exists())
+    .map(s => ({ id: s.id, ...s.data() } as Budget));
+
+  if (!canEditOrDeleteDebt(debt, relatedBudgets)) {
+    throw new Error(
+      'Hutang tidak dapat dihapus karena sudah ada cicilan yang terealisasi. Hapus transaksi terkait di Pengeluaran terlebih dahulu.',
+    );
+  }
+
+  const batch = writeBatch(firestore());
+
+  budgetSnaps.forEach(s => {
+    if (s.exists()) {
+      batch.delete(s.ref);
+    }
+  });
+
+  if (debt.linkedIncomeId) {
+    const incomeRef = doc(
+      periodCollection(householdId, debt.startPeriodId, 'incomes'),
+      debt.linkedIncomeId,
+    );
+    batch.delete(incomeRef);
+  }
+
+  const debtRef = doc(householdCollection(householdId, 'debts'), debt.id);
+  batch.delete(debtRef);
+
+  const entry = activity(
+    householdId,
+    debt.startPeriodId,
+    uid,
+    'hutang_dihapus',
+    `Menghapus hutang ${debt.name} sebesar ${formatRupiah(debt.totalAmount)}`,
+  );
+  batch.set(entry.ref, entry.value);
+
+  await batch.commit();
+}
+
+export async function updateDebtInstallmentAmount(
+  householdId: string,
+  uid: string,
+  debtId: string,
+  installmentIndex: number,
+  newAmount: number,
+): Promise<void> {
+  if (!Number.isInteger(newAmount) || newAmount <= 0) {
+    throw new Error('Nominal termin harus berupa bilangan bulat positif.');
+  }
+
+  const debtRef = doc(householdCollection(householdId, 'debts'), debtId);
+  const debtSnap = await getDoc(debtRef);
+  if (!debtSnap.exists()) {
+    throw new Error('Data hutang tidak ditemukan.');
+  }
+  const debt = { id: debtSnap.id, ...debtSnap.data() } as Debt;
+  const instIndex = installmentIndex - 1;
+  const targetInstallment = debt.installments[instIndex];
+  if (!targetInstallment) {
+    throw new Error('Termin tidak ditemukan.');
+  }
+
+  const budgetDocRef = doc(
+    periodCollection(householdId, targetInstallment.periodId, 'budgets'),
+    targetInstallment.budgetId,
+  );
+  const budgetSnap = await getDoc(budgetDocRef);
+
+  if (
+    targetInstallment.status === 'paid' ||
+    (budgetSnap.exists() && (budgetSnap.data() as Budget)?.realizedAmount > 0)
+  ) {
+    throw new Error('Termin yang sudah terealisasi tidak dapat diubah nominalnya.');
+  }
+
+  debt.installments[instIndex].amount = newAmount;
+  const newTotalAmount = debt.installments.reduce(
+    (sum, item) => sum + item.amount,
+    0,
+  );
+
+  const batch = writeBatch(firestore());
+  batch.update(debtRef, {
+    installments: debt.installments,
+    totalAmount: newTotalAmount,
+    updatedBy: uid,
+    updatedAt: serverTimestamp(),
+  });
+
+  if (budgetSnap.exists()) {
+    batch.update(budgetDocRef, {
+      amount: newAmount,
+      updatedBy: uid,
+      updatedAt: serverTimestamp(),
+    });
+  }
+
+  const entry = activity(
+    householdId,
+    targetInstallment.periodId,
+    uid,
+    'termin_diubah',
+    `Mengubah nominal termin ${installmentIndex} pada hutang ${debt.name} menjadi ${formatRupiah(newAmount)}`,
+  );
+  batch.set(entry.ref, entry.value);
+
+  await batch.commit();
+}
+
+export async function accelerateDebtPayoff(
+  householdId: string,
+  uid: string,
+  debtId: string,
+  targetIndex: number,
+): Promise<void> {
+  const debtRef = doc(householdCollection(householdId, 'debts'), debtId);
+  const debtSnap = await getDoc(debtRef);
+  if (!debtSnap.exists()) {
+    throw new Error('Data hutang tidak ditemukan.');
+  }
+  const debt = { id: debtSnap.id, ...debtSnap.data() } as Debt;
+
+  const result = calculateAcceleratedPayoff(debt, targetIndex);
+
+  const targetBudgetRef = doc(
+    periodCollection(householdId, result.targetInstallment.periodId, 'budgets'),
+    result.targetInstallment.budgetId,
+  );
+
+  const batch = writeBatch(firestore());
+
+  batch.update(debtRef, {
+    effectiveTenor: result.effectiveTenor,
+    installments: result.installments,
+    totalAmount: result.totalAmount,
+    updatedBy: uid,
+    updatedAt: serverTimestamp(),
+  });
+
+  const newBudgetName = formatDebtBudgetName(
+    debt.name,
+    debt.debtType,
+    targetIndex,
+    targetIndex,
+  );
+
+  batch.update(targetBudgetRef, {
+    amount: result.targetInstallment.amount,
+    debtTotalInstallments: targetIndex,
+    name: newBudgetName,
+    updatedBy: uid,
+    updatedAt: serverTimestamp(),
+  });
+
+  result.removedInstallments.forEach(inst => {
+    const bRef = doc(
+      periodCollection(householdId, inst.periodId, 'budgets'),
+      inst.budgetId,
+    );
+    batch.delete(bRef);
+  });
+
+  const entry = activity(
+    householdId,
+    result.targetInstallment.periodId,
+    uid,
+    'hutang_dipercepat',
+    `Mempercepat pelunasan ${debt.name} pada termin ke-${targetIndex}`,
+  );
+  batch.set(entry.ref, entry.value);
+
+  await batch.commit();
+}
+
+export async function createReceivable(
+  householdId: string,
+  uid: string,
+  payload: {
+    debtorName: string;
+    amount: number;
+    date: string;
+    dueDate?: string;
+    note: string;
+  },
+): Promise<string> {
+  if (!Number.isInteger(payload.amount) || payload.amount <= 0) {
+    throw new Error('Nominal piutang harus berupa bilangan bulat positif.');
+  }
+  if (!isValidISODate(payload.date)) {
+    throw new Error('Tanggal piutang tidak valid.');
+  }
+  if (payload.dueDate && !isValidISODate(payload.dueDate)) {
+    throw new Error('Tanggal jatuh tempo tidak valid.');
+  }
+
+  const periodId = payload.date.slice(0, 7);
+  await ensurePeriodDoc(householdId, periodId, uid);
+
+  const recRef = doc(householdCollection(householdId, 'receivables'));
+  const batch = writeBatch(firestore());
+
+  batch.set(recRef, {
+    debtorName: payload.debtorName.trim(),
+    amount: payload.amount,
+    paidAmount: 0,
+    date: payload.date,
+    periodId,
+    ...(payload.dueDate ? { dueDate: payload.dueDate } : {}),
+    note: payload.note?.trim() || '',
+    status: 'unpaid' as ReceivableStatus,
+    payments: [],
+    ...auditForCreate(householdId, periodId, uid),
+  });
+
+  const entry = activity(
+    householdId,
+    periodId,
+    uid,
+    'piutang_ditambah',
+    `Mencatat piutang kepada ${payload.debtorName} sebesar ${formatRupiah(payload.amount)}`,
+  );
+  batch.set(entry.ref, entry.value);
+
+  await batch.commit();
+  return recRef.id;
+}
+
+export async function recordReceivablePayment(
+  householdId: string,
+  uid: string,
+  receivableId: string,
+  payAmount: number,
+  paymentDate: string,
+): Promise<void> {
+  if (!Number.isInteger(payAmount) || payAmount <= 0) {
+    throw new Error('Nominal pembayaran harus berupa bilangan bulat positif.');
+  }
+  if (!isValidISODate(paymentDate)) {
+    throw new Error('Tanggal pembayaran tidak valid.');
+  }
+
+  const paymentPeriodId = paymentDate.slice(0, 7);
+  await ensurePeriodDoc(householdId, paymentPeriodId, uid);
+
+  const piutangCat = await ensureSystemIncomeCategory(householdId, uid, 'Piutang');
+  const recRef = doc(householdCollection(householdId, 'receivables'), receivableId);
+
+  await runTransaction(firestore(), async transaction => {
+    const recSnap = await transaction.get(recRef);
+    if (!recSnap.exists()) {
+      throw new Error('Data piutang tidak ditemukan.');
+    }
+    const rec = recSnap.data() as Receivable;
+    const remaining = rec.amount - rec.paidAmount;
+    if (payAmount > remaining) {
+      throw new Error(
+        `Nominal pembayaran melebihi sisa piutang sebesar ${formatRupiah(
+          payAmount - remaining,
+        )}.`,
+      );
+    }
+
+    const incomeRef = doc(
+      periodCollection(householdId, paymentPeriodId, 'incomes'),
+    );
+
+    transaction.set(incomeRef, {
+      categoryId: piutangCat.id,
+      categoryName: piutangCat.name,
+      amount: payAmount,
+      date: paymentDate,
+      note: `Pembayaran piutang dari ${rec.debtorName}`,
+      ...auditForCreate(householdId, paymentPeriodId, uid),
+    });
+
+    const nextPaidAmount = rec.paidAmount + payAmount;
+    const nextStatus: ReceivableStatus =
+      nextPaidAmount >= rec.amount ? 'paid' : 'partial';
+
+    const paymentItem: ReceivablePayment = {
+      id: incomeRef.id,
+      amount: payAmount,
+      date: paymentDate,
+      periodId: paymentPeriodId,
+      linkedIncomeId: incomeRef.id,
+    };
+
+    transaction.update(recRef, {
+      paidAmount: nextPaidAmount,
+      status: nextStatus,
+      payments: [...(rec.payments || []), paymentItem],
+      updatedBy: uid,
+      updatedAt: serverTimestamp(),
+    });
+
+    logTransaction(
+      transaction,
+      householdId,
+      paymentPeriodId,
+      uid,
+      'piutang_dibayar',
+      `Menerima pembayaran piutang dari ${rec.debtorName} sebesar ${formatRupiah(
+        payAmount,
+      )}`,
+    );
+  });
+}
+
+export async function deleteReceivable(
+  householdId: string,
+  uid: string,
+  receivable: Receivable,
+): Promise<void> {
+  if (
+    receivable.paidAmount > 0 ||
+    (receivable.payments && receivable.payments.length > 0)
+  ) {
+    throw new Error('Piutang yang sudah menerima pembayaran tidak dapat dihapus.');
+  }
+
+  const recRef = doc(
+    householdCollection(householdId, 'receivables'),
+    receivable.id,
+  );
+  const batch = writeBatch(firestore());
+  batch.delete(recRef);
+
+  const entry = activity(
+    householdId,
+    receivable.periodId,
+    uid,
+    'piutang_dihapus',
+    `Menghapus piutang kepada ${receivable.debtorName} sebesar ${formatRupiah(
+      receivable.amount,
+    )}`,
+  );
+  batch.set(entry.ref, entry.value);
+
+  await batch.commit();
 }

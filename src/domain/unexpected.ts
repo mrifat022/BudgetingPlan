@@ -1,4 +1,4 @@
-import type {Budget, FundSource, PeriodData} from '../models';
+import type {Budget, FundSource, PeriodData, Receivable} from '../models';
 import {fundSourceTypeForBudget, uniqueCreditPayments} from './budgeting';
 
 // Keep the existing Debit document ID so old expenses retain their budget link.
@@ -16,11 +16,30 @@ export function normalizeUnexpectedBudget(budget: Budget): Budget {
     : budget;
 }
 
-export function unexpectedAvailable(data: PeriodData, source: Pick<FundSource, 'id' | 'type'>, sources: FundSource[]): number {
+export function unexpectedAvailable(
+  data: PeriodData,
+  source: Pick<FundSource, 'id' | 'type'>,
+  sources: FundSource[],
+  receivables: Receivable[] = [],
+  periodId?: string,
+): number {
+  const activePeriodId =
+    periodId ??
+    data.incomes[0]?.periodId ??
+    data.budgets[0]?.periodId ??
+    data.creditPayments[0]?.periodId ??
+    data.creditLimits[0]?.periodId ??
+    '';
+  const totalReceivablesOut = activePeriodId
+    ? receivables
+        .filter(item => item.periodId === activePeriodId)
+        .reduce((sum, item) => sum + item.amount, 0)
+    : 0;
   const budgets = data.budgets.map(normalizeUnexpectedBudget);
   const capacity = source.type === 'debit'
     ? data.incomes.reduce((sum, item) => sum + item.amount, 0)
       - uniqueCreditPayments(data.creditPayments).reduce((sum, item) => sum + item.amount, 0)
+      - totalReceivablesOut
     : data.creditLimits.find(item => item.fundSourceId === source.id)?.amount ?? 0;
   const allocated = budgets.filter(item => source.type === 'debit'
     ? fundSourceTypeForBudget(item, sources) === 'debit'

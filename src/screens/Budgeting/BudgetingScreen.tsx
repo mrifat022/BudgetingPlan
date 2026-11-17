@@ -29,7 +29,18 @@ function previousPeriod(id: string) {
 }
 
 export default function BudgetingScreen() {
-  const {householdId, uid, activePeriodId, budgetCategories, fundSources, data, previousPeriodData, periods, isPeriodReadOnly} = useBudget();
+  const {
+    householdId,
+    uid,
+    activePeriodId,
+    budgetCategories,
+    fundSources,
+    data,
+    previousPeriodData,
+    periods,
+    isPeriodReadOnly,
+    receivables,
+  } = useBudget();
   const [open, setOpen] = useState(false);
   const [transferring, setTransferring] = useState(false);
   const [cashItem, setCashItem] = useState<Budget | null>(null);
@@ -67,7 +78,17 @@ export default function BudgetingScreen() {
     () => creditPaymentBudgetItems(data.creditPayments),
     [data.creditPayments],
   );
-  const summary = useMemo(() => summarizePeriod(data, fundSources, previousPeriodData), [data, fundSources, previousPeriodData]);
+  const summary = useMemo(
+    () =>
+      summarizePeriod(
+        data,
+        fundSources,
+        previousPeriodData,
+        receivables,
+        activePeriodId,
+      ),
+    [data, fundSources, previousPeriodData, receivables, activePeriodId],
+  );
   const cashSummary = useMemo(() => {
     const cashBudgets = data.budgets.filter(item => item.realizationType === 'cash_allocation');
     const allocated = cashBudgets.reduce((sum, item) => sum + item.amount, 0);

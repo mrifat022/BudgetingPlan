@@ -7,19 +7,23 @@ import React, {
 } from 'react';
 import type {
   BudgetCategory,
+  Debt,
   FundSource,
   IncomeCategory,
   Period,
   PeriodData,
+  Receivable,
 } from '../models';
 import { useAuth } from './AuthContext';
 import {
   ensureCurrentPeriod,
   subscribeBudgetCategories,
+  subscribeDebts,
   subscribeFundSources,
   subscribeIncomeCategories,
   subscribePeriodData,
   subscribePeriods,
+  subscribeReceivables,
 } from '../services/firebase';
 import { previousPeriodId } from '../utils/period';
 
@@ -35,6 +39,8 @@ interface BudgetState {
   incomeCategories: IncomeCategory[];
   budgetCategories: BudgetCategory[];
   fundSources: FundSource[];
+  debts: Debt[];
+  receivables: Receivable[];
   data: PeriodData;
   previousPeriodData: PeriodData;
   loading: boolean;
@@ -64,6 +70,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     [],
   );
   const [fundSources, setFundSources] = useState<FundSource[]>([]);
+  const [debts, setDebts] = useState<Debt[]>([]);
+  const [receivables, setReceivables] = useState<Receivable[]>([]);
   const [data, setData] = useState<PeriodData>(EMPTY_DATA);
   const [previousPeriodData, setPreviousPeriodData] =
     useState<PeriodData>(EMPTY_DATA);
@@ -96,6 +104,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       subscribeIncomeCategories(householdId, setIncomeCategories, onError),
       subscribeBudgetCategories(householdId, setBudgetCategories, onError),
       subscribeFundSources(householdId, setFundSources, onError),
+      subscribeDebts(householdId, setDebts, onError),
+      subscribeReceivables(householdId, setReceivables, onError),
     ];
     return () => unsubs.forEach(unsubscribe => unsubscribe());
   }, [householdId]);
@@ -158,6 +168,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       fundSources: fundSources
         .filter(item => item.active)
         .sort((a, b) => a.name.localeCompare(b.name)),
+      debts,
+      receivables,
       data,
       previousPeriodData,
       loading,
@@ -168,6 +180,8 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
     activePeriodId,
     budgetCategories,
     data,
+    debts,
+    receivables,
     previousPeriodData,
     error,
     fundSources,
