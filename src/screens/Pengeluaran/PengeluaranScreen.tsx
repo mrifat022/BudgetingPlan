@@ -5,7 +5,7 @@ import AppHeader from '../../components/AppHeader';
 import {EmptyMessage, FAB} from '../../components/FinanceUI';
 import {DateField, FormActions, FormModal, Label, MoneyField, SegmentedField, SelectField, TextField} from '../../components/FormUI';
 import Colors from '../../constants/colors';
-import {availableCreditLimit, fundSourceTypeForBudget, isSavingsBudget, isSavingsCategory, remainingForBudget, summarizePeriod, uniqueCreditPayments, validateExpense} from '../../domain/budgeting';
+import {availableCreditLimit, fundSourceTypeForBudget, isSavingsBudget, isSavingsCategory, remainingForBudget, summarizePeriod, SYSTEM_CREDIT_PAYMENT_CATEGORY_ID, uniqueCreditPayments, validateExpense} from '../../domain/budgeting';
 import type {Budget, CreditPayment, Expense} from '../../models';
 import {addExpense, addUnexpectedExpense, cancelCreditPayment, deleteExpense, moveUnexpectedExpenseToCredit, updateExpense} from '../../services/firebase';
 import {useBudget} from '../../state/BudgetContext';
@@ -126,10 +126,20 @@ export default function PengeluaranScreen() {
     });
   }, [data.creditPayments, search, sourceFilter]);
   const categoryGroups = useMemo(() => {
-    const groups = new Map<string, {name: string; expenses: Expense[]; cashAllocations: Budget[]; total: number}>();
+    const groups = new Map<string, {name: string; expenses: Expense[]; cashAllocations: Budget[]; creditPayments: CreditPayment[]; total: number}>();
     const groupFor = (id: string, name: string) => {
-      if (!groups.has(id)) { groups.set(id, {name, expenses: [], cashAllocations: [], total: 0}); }
-      return groups.get(id)!;
+      const normalizedName = name.trim().toLowerCase();
+      const groupId = normalizedName === 'tagihan rutin' ? SYSTEM_CREDIT_PAYMENT_CATEGORY_ID : id;
+      if (!groups.has(groupId)) {
+        groups.set(groupId, {
+          name: normalizedName === 'tagihan rutin' ? 'Tagihan Rutin' : name,
+          expenses: [],
+          cashAllocations: [],
+          creditPayments: [],
+          total: 0,
+        });
+      }
+      return groups.get(groupId)!;
     };
     visibleExpenses.filter(item => !isSavingsCategory(item) && !isUnexpectedCategory(item.categoryId, item.categoryName) && !isUnexpectedBudget(item.budgetId)).forEach(item => {
       const group = groupFor(item.categoryId, item.categoryName);
@@ -141,8 +151,13 @@ export default function PengeluaranScreen() {
       group.cashAllocations.push(item);
       group.total += item.realizedAmount;
     });
+    visibleCreditPayments.forEach(item => {
+      const group = groupFor(SYSTEM_CREDIT_PAYMENT_CATEGORY_ID, 'Tagihan Rutin');
+      group.creditPayments.push(item);
+      group.total += item.amount;
+    });
     return [...groups.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name, 'id'));
-  }, [visibleCashAllocations, visibleExpenses]);
+  }, [visibleCashAllocations, visibleCreditPayments, visibleExpenses]);
   const unexpectedGroups = useMemo(() => {
     const groups = new Map<string, {name: string; expenses: Expense[]; cashAllocations: Budget[]; total: number}>();
     visibleExpenses.filter(item => isUnexpectedCategory(item.categoryId, item.categoryName) || isUnexpectedBudget(item.budgetId)).forEach(item => {
@@ -355,23 +370,12 @@ export default function PengeluaranScreen() {
         <View style={styles.searchWrap}><MaterialCommunityIcons name="magnify" size={21} color={Colors.textSecondary} /><TextInput value={search} onChangeText={setSearch} placeholder="Cari pengeluaran..." placeholderTextColor="#89948F" style={styles.searchInput} /></View>
         <View style={styles.filters}>{([['all', 'Semua'], ['debit', 'Debit'], ['credit_card', 'Kartu Kredit']] as const).map(([value, label]) => <Pressable key={value} style={[styles.filterChip, sourceFilter === value && styles.filterChipActive]} onPress={() => setSourceFilter(value)}><Text style={[styles.filterText, sourceFilter === value && styles.filterTextActive]}>{label}</Text></Pressable>)}</View>
         <View style={styles.summaryGrid}>{summaryCards.map(card => <View key={card.label} style={styles.summaryCard}><Text style={styles.summaryLabel}>{card.label}</Text><Text style={[styles.summaryAmount, card.tone === 'expense' && styles.expenseColor, card.tone === 'unexpected' && styles.unexpectedColor, card.tone === 'balance' && styles.balanceColor, card.tone === 'credit' && styles.creditColor, card.amount < 0 && styles.negativeColor]}>{formatRupiah(card.amount)}</Text></View>)}</View>
-        {categoryGroups.length === 0 && visibleCreditPayments.length === 0 ? <EmptyMessage icon="receipt-text-outline" title="Belum ada realisasi" message="Catat pengeluaran dari budget atau tandai alokasi cash yang sudah diserahkan." /> : categoryGroups.map(([id, group]) => (
+        {categoryGroups.length === 0 && unexpectedGroups.length === 0 ? <EmptyMessage icon="receipt-text-outline" title="Belum ada realisasi" message="Catat pengeluaran dari budget atau tandai alokasi cash yang sudah diserahkan." /> : categoryGroups.map(([id, group]) => (
           <View key={id} style={styles.group}>
-            <Pressable style={styles.groupHeader} onPress={() => toggleGroup(id)}><View style={styles.groupIcon}><MaterialCommunityIcons name="currency-usd" size={20} color={Colors.primary} /></View><View style={styles.groupBody}><Text style={styles.groupTitle}>{group.name}</Text><Text style={styles.groupMeta}>{group.expenses.length + group.cashAllocations.length} transaksi</Text></View><Text style={styles.groupTotal}>-{formatRupiah(group.total)}</Text><MaterialCommunityIcons name={expandedGroups.has(id) ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textSecondary} /></Pressable>
-            {expandedGroups.has(id) ? <View style={styles.groupList}>{group.expenses.map(expenseCard)}{group.cashAllocations.map(cashAllocationCard)}</View> : null}
+            <Pressable style={styles.groupHeader} onPress={() => toggleGroup(id)}><View style={styles.groupIcon}><MaterialCommunityIcons name="currency-usd" size={20} color={Colors.primary} /></View><View style={styles.groupBody}><Text style={styles.groupTitle}>{group.name}</Text><Text style={styles.groupMeta}>{group.expenses.length + group.cashAllocations.length} transaksi{group.creditPayments.length ? ` • ${group.creditPayments.length} pembayaran kartu kredit` : ''}</Text></View><Text style={styles.groupTotal}>-{formatRupiah(group.total)}</Text><MaterialCommunityIcons name={expandedGroups.has(id) ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textSecondary} /></Pressable>
+            {expandedGroups.has(id) ? <View style={styles.groupList}>{group.expenses.map(expenseCard)}{group.cashAllocations.map(cashAllocationCard)}{group.creditPayments.map(creditPaymentCard)}</View> : null}
           </View>
         ))}
-        {visibleCreditPayments.length > 0 ? (
-          <View style={styles.group}>
-            <Pressable style={styles.groupHeader} onPress={() => toggleGroup('tagihan-rutin')}>
-              <View style={[styles.groupIcon, styles.unexpectedIcon]}><MaterialCommunityIcons name="receipt-text-outline" size={20} color="#EE971C" /></View>
-              <View style={styles.groupBody}><Text style={styles.groupTitle}>Tagihan Rutin</Text><Text style={styles.groupMeta}>{visibleCreditPayments.length} pembayaran kartu kredit • arus keluar Debit</Text></View>
-              <Text style={[styles.groupTotal, styles.unexpectedColor]}>-{formatRupiah(visibleCreditPayments.reduce((sum, item) => sum + item.amount, 0))}</Text>
-              <MaterialCommunityIcons name={expandedGroups.has('tagihan-rutin') ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textSecondary} />
-            </Pressable>
-            {expandedGroups.has('tagihan-rutin') ? <View style={styles.groupList}>{visibleCreditPayments.map(creditPaymentCard)}</View> : null}
-          </View>
-        ) : null}
         {unexpectedGroups.map(([id, group]) => (
           <View key={`unexpected-${id}`} style={styles.group}>
             <Pressable style={styles.groupHeader} onPress={() => toggleGroup(`unexpected-${id}`)}><View style={[styles.groupIcon, styles.unexpectedIcon]}><MaterialCommunityIcons name="alert-outline" size={20} color="#EE971C" /></View><View style={styles.groupBody}><Text style={styles.groupTitle}>Belanja Tak Terduga — {group.name}</Text><Text style={styles.groupMeta}>{group.expenses.length + group.cashAllocations.length} transaksi</Text></View><Text style={[styles.groupTotal, styles.unexpectedColor]}>-{formatRupiah(group.total)}</Text><MaterialCommunityIcons name={expandedGroups.has(`unexpected-${id}`) ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textSecondary} /></Pressable>
