@@ -24,6 +24,7 @@ import {
   subscribePeriodData,
   subscribePeriods,
   subscribeReceivables,
+  syncDebtBudgetsForPeriod,
 } from '../services/firebase';
 import { previousPeriodId } from '../utils/period';
 
@@ -144,6 +145,42 @@ export function BudgetProvider({ children }: { children: React.ReactNode }) {
       setError,
     );
   }, [householdId, previousId]);
+
+  useEffect(() => {
+    const selectedPeriod = periods.find(item => item.id === activePeriodId);
+    if (
+      !householdId ||
+      !uid ||
+      !activePeriodId ||
+      !selectedPeriod ||
+      selectedPeriod.status !== 'active'
+    ) {
+      return;
+    }
+
+    syncDebtBudgetsForPeriod(
+      householdId,
+      uid,
+      activePeriodId,
+      debts,
+      budgetCategories,
+      data.budgets,
+    ).catch(cause =>
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : 'Budget cicilan hutang gagal disinkronkan.',
+      ),
+    );
+  }, [
+    activePeriodId,
+    budgetCategories,
+    data.budgets,
+    debts,
+    householdId,
+    periods,
+    uid,
+  ]);
 
   const value = useMemo<BudgetState>(() => {
     const activePeriod =

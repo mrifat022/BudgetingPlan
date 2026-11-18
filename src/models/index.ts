@@ -212,6 +212,7 @@ export interface Receivable extends AuditFields {
   periodId: string;
   dueDate?: string;
   note: string;
+  skipBalanceDeduction?: boolean;
   status: ReceivableStatus;
   payments: ReceivablePayment[];
 }

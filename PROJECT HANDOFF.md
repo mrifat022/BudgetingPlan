@@ -82,6 +82,7 @@ Firestore adalah penyimpanan persisten utama; tidak ditemukan database lokal/SQL
 - Koleksi `debts` dan `receivables` tersimpan di bawah `households/{householdId}`:
   - Hutang: pinjaman dana (`cash_loan`) otomatis mencatat pemasukan kategori `Hutang`, sedangkan jadwal termin otomatis membuat budget kategori `Tagihan Rutin` pada masing-masing periode termin (`debtId`, `debtInstallmentIndex`, `debtTotalInstallments`). Realisasi pengeluaran pada budget terkait menyinkronkan status termin (`paid`/`unpaid`) dan status hutang. Percepatan pelunasan (`accelerateDebtPayoff`) menggabungkan sisa tagihan ke termin aktif dan menghapus budget bulan berikutnya. Salin budget dari bulan sebelumnya mengecualikan budget hutang agar tidak terduplikasi.
   - Piutang: pinjaman keluar pada periode berjalan mengurangi `availableDebit` (`totalReceivablesOut`), dan pencatatan pembayaran piutang (`recordReceivablePayment`) otomatis membuat dokumen `Income` kategori `Piutang` pada periode penerimaan untuk memulihkan saldo Debit.
+  - Piutang baru memiliki field opsional `skipBalanceDeduction`: jika `true`, nominal awal tidak mengurangi saldo Debit periode terkait; jika field tidak ada/`false`, perilaku lama tetap berlaku. Semua pembayaran piutang tetap dicatat sebagai pemasukan dan menambah saldo Debit. Item yang dikecualikan ditandai badge "Tanpa potong saldo awal".
 
 ### State global
 
@@ -110,6 +111,7 @@ Inventaris berdasarkan alur implementasi dan kode yang tersedia (bukan klaim bah
 - Pengaturan limit, pembayaran dan pembatalan pembayaran kartu kredit dengan validasi terkait transaksi.
 - Dashboard dan checklist bulanan, laporan ringkasan/tren/alokasi, pengaturan household/master.
 - Menu Hutang & Piutang (\`HutangPiutangScreen\`) sebagai bottom tab ke-6: manajemen hutang (sekali bayar/cicilan, jadwal termin, percepatan pelunasan, penyesuaian nominal termin) dan piutang (pencatatan pinjaman, penerimaan cicil/lunas yang otomatis masuk pemasukan).
+- Form Piutang menyediakan checklist "Tidak memotong saldo" untuk piutang lama; flag kompatibel dengan data lama dan tidak mengubah perilaku saldo pembayaran masuk.
 - Verifikasi fitur Hutang & Piutang pada 17 November 2026: \`npm run typecheck\`, \`npm run lint\`, dan \`npm test -- --runInBand\` lolos; 6 test suites dan 44 tes berhasil. Ini memverifikasi kode lokal, bukan deployment Firebase atau pengujian emulator.
 - Perhitungan finansial dipisah ke domain module dan memiliki tes unit/service.
 - Aturan keamanan Firestore di \`firestore.rules\` mencakup izin baca/tulis koleksi \`debts\` dan \`receivables\` berbasis member household. Pastikan aturan yang diperbarui di-publish ke Firebase Console (\`firebase deploy --only firestore:rules\` atau unggah manual) sebelum rilis.
@@ -176,3 +178,9 @@ Bagian ini mengarsipkan isi handoff lama agar catatan perubahan terdahulu tetap 
 - Di tab Kartu Kredit Pengeluaran, Sisa Kapasitas = Kapasitas Kredit dikurangi Total Pengeluaran Kredit; form Belanja Tak Terduga menampilkan limit aktual yang tersedia.
 - Deploy Rules harus menggunakan Firebase project yang benar; contoh perintah lama \`firebase deploy --only firestore:rules\`.
 - Pemeriksaan pada handoff terdahulu melaporkan \`npm run typecheck\`, \`npm test -- --runInBand\`, dan ESLint pada file yang diubah lolos dengan 32 tes. Ini adalah catatan historis, bukan hasil pemeriksaan audit dokumen ini.
+
+### 17 November 2026 — piutang historis tanpa pemotongan saldo awal
+
+- Form tambah piutang menambahkan opsi `skipBalanceDeduction` (default `false`) dan badge daftar untuk piutang yang tidak memotong saldo awal.
+- Kalkulasi saldo Debit dan kapasitas Belanja Tak Terduga hanya mengurangi piutang periode terkait yang tidak memiliki flag true. Dokumen lama tanpa field tetap diperlakukan seperti sebelumnya.
+- Pembayaran sebagian maupun pelunasan tetap masuk sebagai pemasukan kategori Piutang; penghapusan piutang tanpa pembayaran tidak melakukan rollback saldo awal.

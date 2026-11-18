@@ -1,5 +1,9 @@
 import type {Budget, FundSource, PeriodData, Receivable} from '../models';
-import {fundSourceTypeForBudget, uniqueCreditPayments} from './budgeting';
+import {
+  fundSourceTypeForBudget,
+  receivablesDeductedAmount,
+  uniqueCreditPayments,
+} from './budgeting';
 
 // Keep the existing Debit document ID so old expenses retain their budget link.
 export const UNEXPECTED_CATEGORY_ID = 'dana-darurat';
@@ -31,9 +35,7 @@ export function unexpectedAvailable(
     data.creditLimits[0]?.periodId ??
     '';
   const totalReceivablesOut = activePeriodId
-    ? receivables
-        .filter(item => item.periodId === activePeriodId)
-        .reduce((sum, item) => sum + item.amount, 0)
+    ? receivablesDeductedAmount(receivables, activePeriodId)
     : 0;
   const budgets = data.budgets.map(normalizeUnexpectedBudget);
   const capacity = source.type === 'debit'

@@ -194,9 +194,9 @@ describe('debt domain logic', () => {
 
     it('returns true when no installments are paid and budgets have 0 realizedAmount', () => {
       const budgets = [
-        { id: 'b-1', realizedAmount: 0 } as Budget,
-        { id: 'b-2', realizedAmount: 0 } as Budget,
-        { id: 'b-3', realizedAmount: 0 } as Budget,
+        { id: 'b-1', debtId: baseDebt.id, realizedAmount: 0 } as Budget,
+        { id: 'b-2', debtId: baseDebt.id, realizedAmount: 0 } as Budget,
+        { id: 'b-3', debtId: baseDebt.id, realizedAmount: 0 } as Budget,
       ];
       expect(canEditOrDeleteDebt(baseDebt, budgets)).toBe(true);
     });
@@ -218,10 +218,17 @@ describe('debt domain logic', () => {
 
     it('returns false when any related budget has realizedAmount > 0', () => {
       const budgets = [
-        { id: 'b-1', realizedAmount: 500_000 } as Budget,
-        { id: 'b-2', realizedAmount: 0 } as Budget,
+        { id: 'b-1', debtId: baseDebt.id, realizedAmount: 500_000 } as Budget,
+        { id: 'b-2', debtId: baseDebt.id, realizedAmount: 0 } as Budget,
       ];
       expect(canEditOrDeleteDebt(baseDebt, budgets)).toBe(false);
+    });
+
+    it('ignores realized budgets belonging to another debt', () => {
+      const budgets = [
+        { id: 'other-budget', debtId: 'different-debt', realizedAmount: 500_000 } as Budget,
+      ];
+      expect(canEditOrDeleteDebt(baseDebt, budgets)).toBe(true);
     });
   });
 });

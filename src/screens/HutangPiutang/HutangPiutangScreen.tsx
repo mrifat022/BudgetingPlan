@@ -114,6 +114,7 @@ export default function HutangPiutangScreen() {
   const [recDueDate, setRecDueDate] = useState('');
   const [hasDueDate, setHasDueDate] = useState(false);
   const [recNote, setRecNote] = useState('');
+  const [skipBalanceDeduction, setSkipBalanceDeduction] = useState(false);
 
   // Modal Record Payment for Piutang
   const [payRecModalOpen, setPayRecModalOpen] = useState(false);
@@ -223,7 +224,12 @@ export default function HutangPiutangScreen() {
       );
       return;
     }
-    if (!canEditOrDeleteDebt(debt, data.budgets)) {
+    if (
+      !canEditOrDeleteDebt(
+        debt,
+        data.budgets.filter(budget => budget.debtId === debt.id),
+      )
+    ) {
       Alert.alert(
         'Hutang Tidak Dapat Diubah',
         'Hutang tidak dapat diubah karena sudah ada cicilan yang terealisasi. Hapus transaksi terkait di Pengeluaran terlebih dahulu.',
@@ -317,7 +323,12 @@ export default function HutangPiutangScreen() {
       );
       return;
     }
-    if (!canEditOrDeleteDebt(debt, data.budgets)) {
+    if (
+      !canEditOrDeleteDebt(
+        debt,
+        data.budgets.filter(budget => budget.debtId === debt.id),
+      )
+    ) {
       Alert.alert(
         'Hutang Tidak Dapat Dihapus',
         'Hutang tidak dapat dihapus karena sudah ada cicilan yang terealisasi. Hapus transaksi terkait di Pengeluaran terlebih dahulu.',
@@ -439,6 +450,7 @@ export default function HutangPiutangScreen() {
     setRecDueDate('');
     setHasDueDate(false);
     setRecNote('');
+    setSkipBalanceDeduction(false);
     setRecModalOpen(true);
   };
 
@@ -467,6 +479,7 @@ export default function HutangPiutangScreen() {
         date: recDate,
         dueDate: hasDueDate && recDueDate ? recDueDate : undefined,
         note: recNote.trim(),
+        skipBalanceDeduction,
       });
       setRecModalOpen(false);
     } catch (err) {
@@ -732,6 +745,11 @@ export default function HutangPiutangScreen() {
                           <Text style={styles.recDueDateText}>
                             Jatuh tempo: {displayDate(rec.dueDate)}
                           </Text>
+                        ) : null}
+                        {rec.skipBalanceDeduction === true ? (
+                          <View style={[styles.badge, styles.badgeNeutral, styles.noBalanceDeductionBadge]}>
+                            <Text style={styles.badgeTextNeutral}>Tanpa potong saldo awal</Text>
+                          </View>
                         ) : null}
                       </View>
                       <View
@@ -1127,6 +1145,22 @@ export default function HutangPiutangScreen() {
         <DateField value={recDate} onChange={setRecDate} />
 
         <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{checked: skipBalanceDeduction}}
+          style={styles.checkboxRow}
+          onPress={() => setSkipBalanceDeduction(value => !value)}>
+          <MaterialCommunityIcons
+            name={skipBalanceDeduction ? 'checkbox-marked' : 'checkbox-blank-outline'}
+            size={20}
+            color={Colors.primary}
+          />
+          <Text style={styles.checkboxLabel}>Tidak memotong saldo</Text>
+        </Pressable>
+        <Text style={styles.recBalanceHelpText}>
+          Centang untuk mencatat piutang lama tanpa mengurangi saldo rekening saat ini.
+        </Text>
+
+        <Pressable
           style={styles.checkboxRow}
           onPress={() => setHasDueDate(!hasDueDate)}>
           <MaterialCommunityIcons
@@ -1378,6 +1412,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.warning,
     marginTop: 2,
+  },
+  noBalanceDeductionBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+  },
+  recBalanceHelpText: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    lineHeight: 16,
+    marginTop: -8,
+    marginBottom: 8,
+    marginLeft: 28,
   },
   recActionRow: {
     flexDirection: 'row',

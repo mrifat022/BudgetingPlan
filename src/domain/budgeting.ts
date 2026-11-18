@@ -58,6 +58,18 @@ export function uniqueCreditPayments(payments: PeriodData['creditPayments']) {
   });
 }
 
+export function receivablesDeductedAmount(
+  receivables: Receivable[],
+  periodId: string,
+) {
+  return receivables
+    .filter(
+      item =>
+        item.periodId === periodId && item.skipBalanceDeduction !== true,
+    )
+    .reduce((sum, item) => sum + item.amount, 0);
+}
+
 const SYSTEM_CREDIT_PAYMENT_PREFIX = '__system-credit-payment-';
 export const SYSTEM_CREDIT_PAYMENT_CATEGORY_ID = '__system-credit-card-bill__';
 
@@ -183,9 +195,7 @@ export function summarizePeriod(
     data.creditLimits[0]?.periodId ??
     '';
   const totalReceivablesOut = activePeriodId
-    ? receivables
-        .filter(item => item.periodId === activePeriodId)
-        .reduce((sum, item) => sum + item.amount, 0)
+    ? receivablesDeductedAmount(receivables, activePeriodId)
     : 0;
   const totalIncome = data.incomes.reduce((sum, item) => sum + item.amount, 0);
   const totalCreditPayments = uniqueCreditPayments(data.creditPayments).reduce(

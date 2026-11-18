@@ -95,6 +95,25 @@ test('meringkas periode dan kelompok sumber dana', () => {
   expect(groupBudgets(data.budgets, 'fundSource').find(item => item.id === 'debit')?.budget).toBe(450_000);
 });
 
+test('piutang tanpa flag tetap memotong saldo, sedangkan piutang lama yang ditandai tidak', () => {
+  const data: PeriodData = {
+    incomes: [{
+      id: 'i1', householdId: 'h1', periodId: '2026-08', categoryId: 'gaji',
+      categoryName: 'Gaji', amount: 1_000_000, date: '2026-08-01', note: '', ...audit,
+    }],
+    budgets: [], expenses: [], creditPayments: [], creditLimits: [],
+  };
+  const receivables = [
+    {id: 'legacy', householdId: 'h1', debtorName: 'A', amount: 100_000, paidAmount: 0, date: '2026-08-02', periodId: '2026-08', note: '', status: 'unpaid' as const, payments: [], ...audit},
+    {id: 'historical', householdId: 'h1', debtorName: 'B', amount: 250_000, paidAmount: 0, date: '2026-08-03', periodId: '2026-08', note: '', status: 'unpaid' as const, payments: [], skipBalanceDeduction: true, ...audit},
+  ];
+
+  expect(summarizePeriod(data, [], undefined, receivables, '2026-08')).toMatchObject({
+    totalReceivablesOut: 100_000,
+    availableDebit: 900_000,
+  });
+});
+
 test('pemakaian debit memasukkan pembayaran kartu dan BTT, pemakaian kredit memasukkan seluruh BTT', () => {
   const data: PeriodData = {
     incomes: [{

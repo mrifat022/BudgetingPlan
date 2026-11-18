@@ -143,20 +143,16 @@ export function calculateAcceleratedPayoff(debt: Debt, targetIndex: number) {
   };
 }
 
-export function canEditOrDeleteDebt(debt: Debt, relatedBudgets: Budget[]): boolean {
+export function canEditOrDeleteDebt(
+  debt: Debt,
+  relatedBudgets: Budget[] = [],
+): boolean {
+  const debtBudgets = relatedBudgets.filter(b => b.debtId === debt.id);
   const hasPaidInstallment = debt.installments.some(
     inst => inst.status === 'paid',
   );
-  if (hasPaidInstallment) {
-    return false;
-  }
-
-  const hasRealizedBudget = relatedBudgets.some(
-    budget => budget.realizedAmount > 0,
+  const hasRealizedBudget = debtBudgets.some(
+    budget => (budget.realizedAmount ?? 0) > 0,
   );
-  if (hasRealizedBudget) {
-    return false;
-  }
-
-  return true;
+  return !hasPaidInstallment && !hasRealizedBudget;
 }
